@@ -1,0 +1,104 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyisolate"
+version = "0.1.0"
+description = "A Python library for dividing execution across multiple virtual environments"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "Jacob Segal", email = "jacob.e.segal@gmail.com"},
+]
+maintainers = [
+    {name = "Jacob Segal", email = "jacob.e.segal@gmail.com"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+keywords = ["virtual environment", "venv", "development"]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-asyncio>=0.21.0",
+    "mypy>=1.0",
+    "pre-commit>=3.0",
+    "ruff>=0.11.0",
+    "pyyaml>=5.4.0",  # Only for test manifest creation
+]
+test = [
+    "torch>=2.0.0",  # For testing share_torch functionality
+    "numpy>=1.26.0,<2.0.0",  # For testing share_torch functionality
+]
+docs = [
+    "sphinx>=5.0",
+    "sphinx-rtd-theme>=1.0",
+    "sphinx-markdown-builder>=0.5.4",  # Optional: for markdown output if needed
+]
+
+[project.urls]
+"Homepage" = "https://github.com/Comfy-Org/pyisolate"
+"Bug Reports" = "https://github.com/Comfy-Org/pyisolate/issues"
+"Source" = "https://github.com/Comfy-Org/pyisolate"
+
+[project.scripts]
+# TODO: Add any console scripts/entry points
+# pyisolate = "pyisolate.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pyisolate*"]
+exclude = ["tests*"]
+
+
+[tool.ruff]
+line-length = 110
+exclude = ["*.ipynb"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "S",    # bandit security
+    "T",    # flake8-print
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "PIE",  # flake8-pie
+    "SIM",  # flake8-simplify
+]
+ignore = ["T201", "S101"]  # Allow print statements and assert statements
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --cov=pyisolate --cov-report=html --cov-report=term-missing"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["pyisolate"]
+omit = ["*/tests/*", "*/test_*.py"]
