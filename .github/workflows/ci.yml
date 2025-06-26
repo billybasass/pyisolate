@@ -56,22 +56,28 @@ jobs:
         include:
           - container: debian:11
             python-install: |
-              apt-get update && apt-get install -y python3 python3-pip python3-venv git
+              apt-get update && apt-get install -y python3 python3-pip python3-venv git curl
+            extras: "dev,test"
           - container: debian:12
             python-install: |
-              apt-get update && apt-get install -y python3 python3-pip python3-venv git
+              apt-get update && apt-get install -y python3 python3-pip python3-venv git curl
+            extras: "dev,test"
           - container: fedora:38
             python-install: |
-              dnf install -y python3 python3-pip git
+              dnf install -y python3 python3-pip git curl
+            extras: "dev,test"
           - container: fedora:39
             python-install: |
-              dnf install -y python3 python3-pip git
+              dnf install -y python3 python3-pip git curl
+            extras: "dev,test"
           - container: rockylinux:9
             python-install: |
-              dnf install -y python3 python3-pip git
+              dnf install -y python3 python3-pip git curl
+            extras: "dev,test"
           - container: alpine:latest
             python-install: |
-              apk add --no-cache python3 py3-pip git gcc musl-dev python3-dev
+              apk add --no-cache python3 py3-pip git gcc musl-dev python3-dev curl
+            extras: "dev"  # Skip torch tests on Alpine (no wheels available)
 
     container: ${{ matrix.container }}
 
@@ -84,20 +90,22 @@ jobs:
     - name: Install uv
       run: |
         curl -LsSf https://astral.sh/uv/install.sh | sh
-        export PATH="$HOME/.local/bin:$PATH"
 
     - name: Install package
       run: |
-        export PATH="$HOME/.local/bin:$PATH"
-        uv venv
-        source .venv/bin/activate
-        uv pip install -e ".[dev,test]"
+        $HOME/.local/bin/uv venv
+        . .venv/bin/activate
+        $HOME/.local/bin/uv pip install -e ".[${{ matrix.extras }}]"
 
     - name: Run tests
       run: |
-        export PATH="$HOME/.local/bin:$PATH"
-        source .venv/bin/activate
-        pytest -v
+        . .venv/bin/activate
+        if [ "${{ matrix.extras }}" = "dev" ]; then
+          # Skip torch-related tests on platforms without torch support
+          pytest -v -k "not torch and not TestShareTorchConfiguration"
+        else
+          pytest -v
+        fi
 
   lint-and-type:
     name: Lint and Type Check
