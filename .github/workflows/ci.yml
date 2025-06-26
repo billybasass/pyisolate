@@ -15,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ['3.9', '3.10', '3.11', '3.12']
-        os: [ubuntu-latest, ubuntu-20.04, ubuntu-22.04]
+        os: [ubuntu-latest, ubuntu-22.04, ubuntu-24.04]
 
     steps:
     - uses: actions/checkout@v4
@@ -84,16 +84,18 @@ jobs:
     - name: Install uv
       run: |
         curl -LsSf https://astral.sh/uv/install.sh | sh
-        echo "$HOME/.local/bin" >> $GITHUB_PATH
+        export PATH="$HOME/.local/bin:$PATH"
 
     - name: Install package
       run: |
+        export PATH="$HOME/.local/bin:$PATH"
         uv venv
         source .venv/bin/activate
         uv pip install -e ".[dev,test]"
 
     - name: Run tests
       run: |
+        export PATH="$HOME/.local/bin:$PATH"
         source .venv/bin/activate
         pytest -v
 
