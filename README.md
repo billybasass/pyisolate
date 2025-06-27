@@ -251,6 +251,7 @@ This structure ensures that:
 - [x] Context tracking for RPC calls
 - [x] Async/await support
 - [x] Performance benchmarking suite
+- [x] Memory usage tracking and benchmarking
 
 ### 🚧 In Progress
 - [ ] Documentation site

@@ -249,12 +249,92 @@ The benchmark suite includes robust error handling:
 - `benchmarks/simple_benchmark.py`: Quick benchmarks for rapid testing
 - `tests/test_benchmarks.py`: Benchmark runner class and test utilities
 
+## Memory Benchmarking
+
+### Overview
+
+The memory benchmarking suite (`benchmarks/memory_benchmark.py`) measures RAM and VRAM usage across host and child processes with varying numbers of extensions and different tensor sharing configurations.
+
+### Running Memory Benchmarks
+
+```bash
+# Run full memory benchmark suite
+python benchmarks/memory_benchmark.py
+
+# Test with custom extension counts
+python benchmarks/memory_benchmark.py --counts 1,5,10,20,50
+
+# Test up to 100 extensions
+python benchmarks/memory_benchmark.py --max-extensions 100
+
+# Only test large tensor sharing
+python benchmarks/memory_benchmark.py --large-only
+
+# Only test small tensor scaling
+python benchmarks/memory_benchmark.py --small-only
+```
+
+### Memory Benchmark Features
+
+1. **Process Memory Tracking**: Uses `psutil` to track RAM usage across process trees
+2. **GPU Memory Tracking**: Uses `nvidia-ml-py3` to track VRAM usage per process
+3. **Extension Scaling**: Tests memory usage with 1-100 extensions
+4. **Tensor Sharing Analysis**: Compares memory usage with and without `share_torch`
+5. **Large Tensor Tests**: Tests with 2GB tensors to verify memory sharing efficiency
+
+### Memory Benchmark Output
+
+The memory benchmark provides detailed tables showing:
+- RAM usage per extension
+- Memory overhead for tensor transfers
+- VRAM usage for GPU tensors
+- Memory savings from `share_torch` optimization
+
+Example output:
+```
+MEMORY BENCHMARK SUMMARY
+================================================================================
+
+Baseline Memory Usage:
+  RAM: 150.3 MB
+  VRAM: 0.0 MB
+
+CPU NO SHARE Results:
++-------------+----------------+-------------------+-------------+---------+
+| Extensions  | RAM/Ext (MB)   | Tensor RAM (MB)   | VRAM (MB)   | Shared  |
++=============+================+===================+=============+=========+
+| 1           | 45.2           | 1.1               | 0.0         | No      |
++-------------+----------------+-------------------+-------------+---------+
+| 5           | 44.8           | 5.3               | 0.0         | No      |
++-------------+----------------+-------------------+-------------+---------+
+
+2GB TENSOR SHARING TEST:
++--------------------+--------------------+--------------------------+------------------------+
+| Config             | Tensor Size (MB)   | Distribution RAM (MB)    | RAM/Extension (MB)     |
++====================+====================+==========================+========================+
+| share_torch=False  | 2048.0             | 10240.0                  | 2048.0                 |
++--------------------+--------------------+--------------------------+------------------------+
+| share_torch=True   | 2048.0             | 512.0                    | 102.4                  |
++--------------------+--------------------+--------------------------+------------------------+
+
+Memory Sharing Analysis:
+  Memory saved with share_torch: 9728.0 MB (95.0%)
+```
+
+### Key Metrics
+
+- **RAM/Extension**: Average memory overhead per extension process
+- **Tensor RAM**: Additional RAM used for tensor distribution
+- **VRAM**: GPU memory usage (if CUDA available)
+- **Memory Sharing**: Whether tensors are shared (same memory address) or copied
+
 ## Contributing
 
 When adding new benchmarks:
-1. Follow the existing pattern in `benchmarks/benchmark.py`
+1. Follow the existing pattern in `benchmarks/benchmark.py` or `benchmarks/memory_benchmark.py`
 2. Include error handling for potential failures
 3. Add appropriate test data sizes
 4. Document what the benchmark measures
 5. Update this README with new benchmark descriptions
 6. Test with various `--torch-mode` options to ensure compatibility
+7. For memory benchmarks, ensure proper cleanup to avoid memory leaks
