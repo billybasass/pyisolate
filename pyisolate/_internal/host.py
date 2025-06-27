@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import os
 import re
@@ -232,6 +233,31 @@ class Extension(Generic[T]):
             self.extension_proxy = self.rpc.create_caller(self.extension_type, "extension")
 
         return self.extension_proxy
+
+    def stop(self) -> None:
+        """Stop the extension process and clean up resources."""
+        try:
+            # Terminate the process first to prevent further issues
+            if hasattr(self, "proc") and self.proc.is_alive():
+                self.proc.terminate()
+                self.proc.join(timeout=5.0)
+
+                # Force kill if still alive
+                if self.proc.is_alive():
+                    logger.warning(f"Extension {self.name} did not terminate gracefully, force killing")
+                    self.proc.kill()
+                    self.proc.join()
+
+            # Clean up queues
+            if hasattr(self, "to_extension"):
+                with contextlib.suppress(Exception):
+                    self.to_extension.close()
+            if hasattr(self, "from_extension"):
+                with contextlib.suppress(Exception):
+                    self.from_extension.close()
+
+        except Exception as e:
+            logger.error(f"Error stopping extension {self.name}: {e}")
 
     def __launch(self):
         """

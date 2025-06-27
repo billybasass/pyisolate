@@ -287,20 +287,56 @@ class AsyncRPC:
                 error=None,
             )
         except Exception as e:
-            traceback.print_exc()
+            error_msg = str(e)
+            # Check for CUDA OOM errors specifically
+            if "CUDA error: out of memory" in error_msg or "out of memory" in error_msg.lower():
+                print(f"CUDA OOM error in RPC dispatch for {request.get('method', 'unknown')}: {error_msg}")
+                traceback.print_exc()
+            else:
+                traceback.print_exc()
             response = RPCResponse(
                 kind="response",
                 call_id=request["call_id"],
                 result=None,
-                error=str(e),
+                error=error_msg,
             )
 
         debugprint("Sending response: ", response)
-        self.send_queue.put(response)
+        try:
+            self.send_queue.put(response)
+        except Exception as e:
+            error_msg = str(e)
+            if "CUDA error: out of memory" in error_msg or "out of memory" in error_msg.lower():
+                print(f"CUDA OOM error while sending RPC response: {error_msg}")
+                # Try to send a simpler error response
+                try:
+                    simple_response = RPCResponse(
+                        kind="response",
+                        call_id=request["call_id"],
+                        result=None,
+                        error=f"CUDA out of memory during response transmission: {error_msg}",
+                    )
+                    self.send_queue.put(simple_response)
+                except Exception:
+                    print("Failed to send even a simple error response - process may be stuck")
+            else:
+                print(f"Error sending RPC response: {error_msg}")
+                raise
 
     def _recv_thread(self):
         while True:
-            item = self.recv_queue.get()
+            try:
+                item = self.recv_queue.get()
+            except Exception as e:
+                error_msg = str(e)
+                if "CUDA error: out of memory" in error_msg or "out of memory" in error_msg.lower():
+                    print(f"CUDA OOM error while receiving RPC message: {error_msg}")
+                    # Try to continue receiving other messages
+                    continue
+                else:
+                    print(f"Error receiving RPC message: {error_msg}")
+                    continue
+
             debugprint("Got recv: ", item)
             if item is None:
                 if self.blocking_future:
@@ -380,9 +416,36 @@ class AsyncRPC:
                     args=item["args"],
                     kwargs=item["kwargs"],
                 )
-                self.send_queue.put(request)
+                try:
+                    self.send_queue.put(request)
+                except Exception as e:
+                    error_msg = str(e)
+                    if "CUDA error: out of memory" in error_msg or "out of memory" in error_msg.lower():
+                        print(f"CUDA OOM error while sending RPC request for {item['method']}: {error_msg}")
+                        # Set exception on the future to notify the caller
+                        with self.lock:
+                            pending = self.pending.pop(call_id, None)
+                        if pending:
+                            pending["calling_loop"].call_soon_threadsafe(
+                                pending["future"].set_exception,
+                                RuntimeError(f"CUDA out of memory during request transmission: {error_msg}"),
+                            )
+                    else:
+                        print(f"Error sending RPC request: {error_msg}")
+                        # Set exception on the future
+                        with self.lock:
+                            pending = self.pending.pop(call_id, None)
+                        if pending:
+                            pending["calling_loop"].call_soon_threadsafe(pending["future"].set_exception, e)
             elif item["kind"] == "response":
-                self.send_queue.put(item)
+                try:
+                    self.send_queue.put(item)
+                except Exception as e:
+                    error_msg = str(e)
+                    if "CUDA error: out of memory" in error_msg or "out of memory" in error_msg.lower():
+                        print(f"CUDA OOM error while sending RPC response: {error_msg}")
+                    else:
+                        print(f"Error sending RPC response: {error_msg}")
             else:
                 raise ValueError(f"Unknown item type: {type(item)}")
 

@@ -14,6 +14,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 uv venv && source .venv/bin/activate && uv pip install -e ".[dev,docs]"
 pre-commit install
 
+# With benchmarking dependencies
+uv pip install -e ".[dev,docs,bench]"
+
 # Alternative (using pip)
 python -m venv venv && source venv/bin/activate && pip install -e ".[dev,docs]"
 ```
@@ -31,6 +34,24 @@ pytest tests/test_integration.py -v
 
 # Test the working example
 cd example && python main.py -v
+```
+
+### Benchmarking
+```bash
+# Install benchmark dependencies
+uv pip install -e ".[bench]"
+
+# Run full benchmark suite
+python benchmark.py
+
+# Quick benchmarks (fewer iterations)
+python benchmark.py --quick
+
+# Skip torch benchmarks
+python benchmark.py --no-torch
+
+# Run benchmarks via pytest
+pytest tests/test_benchmarks.py -v -s
 ```
 
 ### Code Quality
@@ -83,7 +104,8 @@ Note: The example uses a two-level pattern where `ExampleExtensionBase` handles 
 ### Dependencies
 - **Runtime**: None (pure Python)
 - **Development**: pytest, ruff, pre-commit
-- **Optional**: torch>=2.0.0 (for `share_torch` feature)
+- **Testing**: torch>=2.0.0, numpy (for `share_torch` and tensor tests)
+- **Benchmarking**: torch, numpy, psutil, tabulate (for performance measurement)
 
 ### Key Config Files
 - `pyproject.toml`: Project metadata, dependencies, tool configuration

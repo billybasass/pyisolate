@@ -250,11 +250,11 @@ This structure ensures that:
 - [x] Fast installation with `uv`
 - [x] Context tracking for RPC calls
 - [x] Async/await support
+- [x] Performance benchmarking suite
 
 ### 🚧 In Progress
 - [ ] Documentation site
 - [ ] macOS testing
-- [ ] Performance benchmarks
 - [ ] Wrapper for non-async calls between processes
 
 ### 🔮 Future Plans
@@ -290,7 +290,97 @@ pytest
 
 # Run linting
 ruff check pyisolate tests
+
+# Run benchmarks
+python benchmarks/simple_benchmark.py
 ```
+
+### Benchmarking
+
+pyisolate includes a comprehensive benchmarking suite to measure RPC call overhead:
+
+```bash
+# Install benchmark dependencies
+uv pip install -e ".[bench]"
+
+# Quick benchmark using existing example extensions
+python benchmarks/simple_benchmark.py
+
+# Full benchmark suite with statistical analysis
+python benchmarks/benchmark.py
+
+# Quick mode with fewer iterations for faster results
+python benchmarks/benchmark.py --quick
+
+# Skip torch benchmarks (if torch not available)
+python benchmarks/benchmark.py --no-torch
+
+# Skip GPU benchmarks
+python benchmarks/benchmark.py --no-gpu
+
+# Run benchmarks via pytest
+pytest tests/test_benchmarks.py -v -s
+```
+
+#### Example Benchmark Output
+
+```
+============================================================
+RPC BENCHMARK RESULTS
+============================================================
+Successful Benchmarks:
++--------------------------+-------------+----------------+------------+------------+
+| Test                     |   Mean (ms) |   Std Dev (ms) |   Min (ms) |   Max (ms) |
++==========================+=============+================+============+============+
+| small_int_shared         |        0.29 |           0.04 |       0.22 |       0.71 |
++--------------------------+-------------+----------------+------------+------------+
+| small_string_shared      |        0.29 |           0.04 |       0.22 |       0.74 |
++--------------------------+-------------+----------------+------------+------------+
+| medium_string_shared     |        0.29 |           0.04 |       0.22 |       0.74 |
++--------------------------+-------------+----------------+------------+------------+
+| large_string_shared      |        0.3  |           0.04 |       0.25 |       0.73 |
++--------------------------+-------------+----------------+------------+------------+
+| tiny_tensor_cpu_shared   |        0.98 |           0.1  |       0.84 |       1.88 |
++--------------------------+-------------+----------------+------------+------------+
+| tiny_tensor_gpu_shared   |        1.27 |           0.29 |       0.91 |       2.83 |
++--------------------------+-------------+----------------+------------+------------+
+| small_tensor_cpu_shared  |        0.89 |           0.1  |       0.76 |       2.31 |
++--------------------------+-------------+----------------+------------+------------+
+| small_tensor_gpu_shared  |        1.5  |           0.38 |       1.06 |       2.99 |
++--------------------------+-------------+----------------+------------+------------+
+| medium_tensor_cpu_shared |        0.88 |           0.09 |       0.76 |       1.77 |
++--------------------------+-------------+----------------+------------+------------+
+| medium_tensor_gpu_shared |        1.37 |           0.28 |       1.04 |       3.52 |
++--------------------------+-------------+----------------+------------+------------+
+| large_tensor_cpu_shared  |        0.88 |           0.1  |       0.74 |       1.97 |
++--------------------------+-------------+----------------+------------+------------+
+| large_tensor_gpu_shared  |        1.66 |           0.65 |       1.06 |      11.44 |
++--------------------------+-------------+----------------+------------+------------+
+| image_8k_cpu_shared      |        1.18 |           0.12 |       1.01 |       2.07 |
++--------------------------+-------------+----------------+------------+------------+
+| image_8k_gpu_shared      |        2.93 |           0.96 |       2.04 |      26.92 |
++--------------------------+-------------+----------------+------------+------------+
+| model_6gb_cpu_shared     |        0.9  |           0.1  |       0.76 |       2.04 |
++--------------------------+-------------+----------------+------------+------------+
+
+Failed Tests:
++----------------------+------------------+
+| Test                 | Error            |
++======================+==================+
+| model_6gb_gpu_shared | CUDA OOM/Timeout |
++----------------------+------------------+
+
+```
+
+The benchmarks measure:
+
+1. **Small Data RPC Overhead**: ~0.26-0.28ms for basic data types (integers, strings)
+2. **Large Data Scaling**: Performance with large arrays and tensors
+3. **Torch Tensor Overhead**: Additional cost for tensor serialization
+4. **GPU vs CPU Tensors**: GPU tensors show higher overhead due to device transfers
+5. **Array Processing**: Numpy arrays show ~95% overhead vs basic data types
+
+For detailed benchmark documentation, see [benchmarks/README.md](benchmarks/README.md).
 
 ## License
 

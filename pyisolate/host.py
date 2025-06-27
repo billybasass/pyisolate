@@ -7,11 +7,14 @@ handles the lifecycle of extensions including creation, isolation, dependency
 installation, and RPC communication setup.
 """
 
+import logging
 from typing import Generic, TypeVar, cast
 
 from ._internal.host import Extension
 from .config import ExtensionConfig, ExtensionManagerConfig
 from .shared import ExtensionBase, ExtensionLocal
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=ExtensionBase)
 
@@ -142,9 +145,10 @@ class ExtensionManager(Generic[T]):
             local ones from the host's perspective.
             """
 
-            def __init__(self, rpc, proxy) -> None:
+            def __init__(self, rpc, proxy, extension) -> None:
                 super().__init__()
                 self.proxy = proxy
+                self._extension = extension
 
             def __getattr__(self, item: str):
                 """Delegate attribute access to the extension's proxy object.
@@ -154,7 +158,44 @@ class ExtensionManager(Generic[T]):
                 """
                 return getattr(self.proxy, item)
 
-        host_extension = HostExtension(extension.rpc, proxy)
+        host_extension = HostExtension(extension.rpc, proxy, extension)
         host_extension._initialize_rpc(extension.rpc)
 
         return cast(T, host_extension)
+
+    def stop_extension(self, name: str) -> None:
+        """Stop a specific extension by name.
+
+        Args:
+            name: The name of the extension to stop (as provided in ExtensionConfig).
+
+        Raises:
+            KeyError: If no extension with the given name is loaded.
+        """
+        if name not in self.extensions:
+            raise KeyError(f"No extension named '{name}' is loaded")
+
+        try:
+            logger.debug(f"Stopping extension: {name}")
+            self.extensions[name].stop()
+            # Remove from our tracking after successful stop
+            del self.extensions[name]
+        except Exception as e:
+            logger.error(f"Error stopping extension {name}: {e}")
+            raise
+
+    def stop_all_extensions(self) -> None:
+        """Stop all loaded extensions and clean up resources.
+
+        This method stops all extension processes that were loaded by this manager,
+        cleaning up their virtual environments and RPC connections. It's recommended
+        to call this method before shutting down the application to ensure clean
+        termination of all extension processes.
+        """
+        for name, extension in self.extensions.items():
+            try:
+                logger.debug(f"Stopping extension: {name}")
+                extension.stop()
+            except Exception as e:
+                logger.error(f"Error stopping extension {name}: {e}")
+        self.extensions.clear()

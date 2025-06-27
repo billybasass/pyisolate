@@ -196,12 +196,12 @@ def example_entrypoint() -> ExampleExtension:
 
     async def cleanup(self):
         """Clean up test environment."""
-        # Shutdown extensions
-        for extension in self.extensions:
+        # Shutdown all extensions via manager
+        if self.manager:
             try:
-                await extension.stop()
+                self.manager.stop_all_extensions()
             except Exception as e:
-                logging.warning(f"Error stopping extension: {e}")
+                logging.warning(f"Error stopping extensions: {e}")
 
         # Clean up temp directory
         if self.temp_dir:
