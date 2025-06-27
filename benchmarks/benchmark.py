@@ -392,8 +392,10 @@ def example_entrypoint():
                         else:
                             print(f"    Share_torch failed: {e}")
                             failed_tests[test_name] = str(e)[:100]
-                elif should_test_shared:
-                    # Extension was stopped due to previous error but should have been tested
+            else:
+                # Extension is None (either not created or was stopped)
+                should_test_shared = torch_mode in ["both", "shared"]
+                if should_test_shared:
                     test_name = f"{name}_shared"
                     skipped_tests[test_name] = "Extension stopped"
 
