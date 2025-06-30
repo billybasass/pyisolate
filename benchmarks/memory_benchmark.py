@@ -309,10 +309,11 @@ class MemoryBenchmarkRunner:
 
             # Create test tensor
             print(f"Creating test tensor {test_tensor_size}...")
-            if use_cuda and CUDA_AVAILABLE:
-                test_tensor = torch.randn(*test_tensor_size, device="cuda")
-            else:
-                test_tensor = torch.randn(*test_tensor_size)
+            with torch.inference_mode():
+                if use_cuda and CUDA_AVAILABLE:
+                    test_tensor = torch.randn(*test_tensor_size, device="cuda")
+                else:
+                    test_tensor = torch.randn(*test_tensor_size)
 
             tensor_size_mb = test_tensor.element_size() * test_tensor.numel() / (1024 * 1024)
             print(f"Tensor size: {tensor_size_mb:.1f} MB on {test_tensor.device}")
@@ -479,7 +480,10 @@ class MemoryBenchmarkRunner:
                 side = int(num_elements**0.5)
 
                 print(f"Creating {tensor_gb}GB tensor ({side}x{side}) on {device_name}...")
-                large_tensor = torch.randn(side, side, device="cuda") if use_cuda else torch.randn(side, side)
+                with torch.inference_mode():
+                    large_tensor = (
+                        torch.randn(side, side, device="cuda") if use_cuda else torch.randn(side, side)
+                    )
                 actual_size_mb = large_tensor.element_size() * large_tensor.numel() / (1024 * 1024)
                 print(f"Actual tensor size: {actual_size_mb:.1f} MB on {large_tensor.device}")
 

@@ -267,7 +267,8 @@ def example_entrypoint() -> ExampleExtension:
             # Test 1: Simple CPU tensor
             import torch
 
-            cpu_tensor = torch.randn(3, 4)
+            with torch.inference_mode():
+                cpu_tensor = torch.randn(3, 4)
 
             # Call extension method
             result_tensor = await extension.do_stuff({"operation": "process_tensor", "tensor": cpu_tensor})
@@ -284,7 +285,8 @@ def example_entrypoint() -> ExampleExtension:
             assert tensor_info["is_cuda"] is False
 
             # Test 2: Multiple tensors
-            tensors = [torch.ones(2, 2), torch.zeros(2, 2), torch.eye(2)]
+            with torch.inference_mode():
+                tensors = [torch.ones(2, 2), torch.zeros(2, 2), torch.eye(2)]
             stacked_result = await extension.do_stuff(
                 {"operation": "test_multiple_tensors", "tensors": tensors}
             )
@@ -415,7 +417,8 @@ def example_entrypoint() -> ExampleExtension:
             import torch
 
             # Test 1: Basic tensor processing
-            input_tensor = torch.randn(4, 5)
+            with torch.inference_mode():
+                input_tensor = torch.randn(4, 5)
             normalized = await extension.do_stuff(
                 {"operation": "process_tensor_isolated", "tensor": input_tensor}
             )
@@ -428,11 +431,12 @@ def example_entrypoint() -> ExampleExtension:
             assert abs(norm_info["output_std"] - 1.0) < 1e-6  # Should be close to 1
 
             # Test 2: Different dtypes
-            tensors_dict = {
-                "float32": torch.randn(2, 3),
-                "int64": torch.randint(0, 10, (2, 3)),
-                "bool": torch.tensor([[True, False], [False, True]]),
-            }
+            with torch.inference_mode():
+                tensors_dict = {
+                    "float32": torch.randn(2, 3),
+                    "int64": torch.randint(0, 10, (2, 3)),
+                    "bool": torch.tensor([[True, False], [False, True]]),
+                }
 
             dtype_results = await extension.do_stuff(
                 {"operation": "test_different_dtypes", "tensors_dict": tensors_dict}
@@ -540,7 +544,8 @@ def example_entrypoint() -> ExampleExtension:
             import torch
 
             # Test 1: GPU tensor operations
-            gpu_tensor = torch.randn(5, 5).cuda()
+            with torch.inference_mode():
+                gpu_tensor = torch.randn(5, 5).cuda()
             gpu_result = await extension.do_stuff({"operation": "process_gpu_tensor", "tensor": gpu_tensor})
 
             assert isinstance(gpu_result, torch.Tensor)
@@ -552,7 +557,8 @@ def example_entrypoint() -> ExampleExtension:
             assert "cuda" in gpu_info["device"]
 
             # Test 2: CPU to GPU transfer
-            cpu_tensor = torch.ones(3, 3)
+            with torch.inference_mode():
+                cpu_tensor = torch.ones(3, 3)
             transferred_result = await extension.do_stuff(
                 {"operation": "transfer_between_devices", "tensor": cpu_tensor}
             )
@@ -637,7 +643,8 @@ def example_entrypoint() -> ExampleExtension:
             import torch
 
             # Test GPU operations
-            gpu_tensor = torch.randn(4, 4).cuda()
+            with torch.inference_mode():
+                gpu_tensor = torch.randn(4, 4).cuda()
             squared_result = await extension.do_stuff(
                 {"operation": "process_gpu_operations", "tensor": gpu_tensor}
             )

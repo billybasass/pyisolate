@@ -394,7 +394,8 @@ def example_entrypoint():
         print("=" * 60)
 
         # Small tensor (CPU)
-        small_tensor_cpu = torch.randn(100, 100)  # ~40KB
+        with torch.inference_mode():
+            small_tensor_cpu = torch.randn(100, 100)  # ~40KB
 
         await self.runner.run_benchmark(
             "Small Tensor CPU - Local Baseline",
@@ -406,7 +407,8 @@ def example_entrypoint():
         )
 
         # Large tensor (CPU)
-        large_tensor_cpu = torch.randn(1024, 1024)  # ~4MB
+        with torch.inference_mode():
+            large_tensor_cpu = torch.randn(1024, 1024)  # ~4MB
 
         await self.runner.run_benchmark(
             "Large Tensor CPU - RPC Call",
@@ -416,8 +418,9 @@ def example_entrypoint():
 
         # GPU tests if available
         if CUDA_AVAILABLE:
-            small_tensor_gpu = small_tensor_cpu.cuda()
-            large_tensor_gpu = large_tensor_cpu.cuda()
+            with torch.inference_mode():
+                small_tensor_gpu = small_tensor_cpu.cuda()
+                large_tensor_gpu = large_tensor_cpu.cuda()
 
             await self.runner.run_benchmark(
                 "Small Tensor GPU - RPC Call",

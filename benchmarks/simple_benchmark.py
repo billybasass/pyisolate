@@ -122,7 +122,8 @@ async def measure_rpc_overhead(include_large_tensors=False):
             for name, size in tensor_specs:
                 try:
                     print(f"  Creating {name} tensor {size}...")
-                    tensor = torch.randn(*size)
+                    with torch.inference_mode():
+                        tensor = torch.randn(*size)
                     test_data.append((name, tensor))
                     print(f"    {name} created successfully ({tensor.numel() * 4 / (1024**3):.2f}GB)")
                 except RuntimeError as e:
@@ -130,12 +131,13 @@ async def measure_rpc_overhead(include_large_tensors=False):
 
             if include_large_tensors:
                 print("  Including very large tensors (this will use significant memory)...")
-                test_data.extend(
-                    [
-                        ("huge_tensor", torch.randn(4096, 4096)),  # ~64MB
-                        ("image_4k", torch.randn(3, 4096, 4096)),  # ~200MB (4K RGB image)
-                    ]
-                )
+                with torch.inference_mode():
+                    test_data.extend(
+                        [
+                            ("huge_tensor", torch.randn(4096, 4096)),  # ~64MB
+                            ("image_4k", torch.randn(3, 4096, 4096)),  # ~200MB (4K RGB image)
+                        ]
+                    )
                 # 8K image would be ~800MB, only add if explicitly requested
                 print("  (8K image tensor skipped - would use ~800MB)")
             else:

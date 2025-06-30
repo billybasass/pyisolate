@@ -254,7 +254,8 @@ def example_entrypoint():
                         else:
                             print(f"  Creating {name} tensor {size}...")
 
-                        tensor = torch.randn(*size)
+                        with torch.inference_mode():
+                            tensor = torch.randn(*size)
                         test_data.append((f"{name}_cpu", tensor))
 
                         size_gb = (tensor.numel() * 4) / (1024**3)
@@ -266,11 +267,13 @@ def example_entrypoint():
                                 # Skip GPU for very large tensors to avoid OOM
                                 if name == "image_8k" or name == "model_6gb":
                                     print(f"    Creating GPU version of {name} (may use significant VRAM)...")
-                                    gpu_tensor = tensor.cuda()
+                                    with torch.inference_mode():
+                                        gpu_tensor = tensor.cuda()
                                     test_data.append((f"{name}_gpu", gpu_tensor))
                                     print("    GPU tensor created successfully")
                                 else:
-                                    gpu_tensor = tensor.cuda()
+                                    with torch.inference_mode():
+                                        gpu_tensor = tensor.cuda()
                                     test_data.append((f"{name}_gpu", gpu_tensor))
                                     print("    GPU tensor created successfully")
                             except RuntimeError as gpu_e:
