@@ -57,6 +57,7 @@ class MemoryTracker:
         self.process = psutil.Process()
         self.nvml_initialized = False
         self.gpu_handle = None
+        self.baseline_gpu_memory_mb = 0
 
         if NVML_AVAILABLE and nvml:
             try:
@@ -64,6 +65,9 @@ class MemoryTracker:
                 self.nvml_initialized = True
                 # Get the first GPU
                 self.gpu_handle = nvml.nvmlDeviceGetHandleByIndex(0)
+                # Store baseline GPU memory usage
+                mem_info = nvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
+                self.baseline_gpu_memory_mb = mem_info.used / 1024 / 1024
             except Exception as e:
                 print(f"Failed to initialize NVML: {e}")
                 self.nvml_initialized = False
@@ -113,33 +117,54 @@ class MemoryTracker:
         except Exception as e:
             print(f"Error getting RAM usage: {e}")
 
-        # Get total GPU memory usage (not per-process)
+        # Get GPU memory usage - use total system VRAM since extensions run in separate processes
         if self.nvml_initialized and self.gpu_handle:
             try:
                 # Get total GPU memory info
                 mem_info = nvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
-                memory_info["gpu_used_mb"] = mem_info.used / 1024 / 1024
+                current_used_mb = mem_info.used / 1024 / 1024
+                memory_info["gpu_used_mb"] = current_used_mb
                 memory_info["gpu_total_mb"] = mem_info.total / 1024 / 1024
-                memory_info["total_vram_mb"] = memory_info["gpu_used_mb"]
+                memory_info["total_vram_mb"] = current_used_mb
 
-                # Try to get per-process info (might return 0)
-                try:
-                    processes = nvml.nvmlDeviceGetComputeRunningProcesses(self.gpu_handle)
-                    our_pids = set(self.get_process_tree_pids())
-
-                    for proc in processes:
-                        if proc.pid in our_pids and proc.usedGpuMemory is not None:
-                            vram_mb = proc.usedGpuMemory / 1024 / 1024
-                            if proc.pid == self.process.pid:
-                                memory_info["host_vram_mb"] = vram_mb
-                except Exception as e:
-                    # Per-process tracking failed, use total GPU memory instead
-                    print(f"Warning: Per-process GPU tracking failed: {e}", file=sys.stderr)
+                # Calculate VRAM usage relative to baseline (captures all processes)
+                # This is more reliable than per-process tracking, especially on Windows
+                vram_delta = current_used_mb - self.baseline_gpu_memory_mb
+                memory_info["host_vram_mb"] = max(0, vram_delta)
 
             except Exception as e:
                 print(f"Error getting GPU memory usage: {e}")
 
+        # Fallback: try PyTorch CUDA memory for current process if NVML failed
+        elif CUDA_AVAILABLE and torch.cuda.is_available():
+            try:
+                # This only captures current process, but better than nothing
+                allocated_mb = torch.cuda.memory_allocated() / 1024 / 1024
+                reserved_mb = torch.cuda.memory_reserved() / 1024 / 1024
+
+                memory_info["host_vram_mb"] = allocated_mb
+                memory_info["total_vram_mb"] = allocated_mb
+                memory_info["pytorch_reserved_mb"] = reserved_mb
+
+                print(
+                    "Warning: Using PyTorch CUDA memory (current process only): "
+                    + f"{allocated_mb:.1f} MB allocated",
+                    file=sys.stderr,
+                )
+
+            except Exception as e:
+                print(f"Error getting PyTorch CUDA memory: {e}")
+
         return memory_info
+
+    def reset_baseline(self):
+        """Reset the baseline GPU memory measurement."""
+        if self.nvml_initialized and self.gpu_handle:
+            try:
+                mem_info = nvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
+                self.baseline_gpu_memory_mb = mem_info.used / 1024 / 1024
+            except Exception as e:
+                print(f"Error resetting GPU memory baseline: {e}")
 
     def __del__(self):
         """Cleanup NVML on deletion."""

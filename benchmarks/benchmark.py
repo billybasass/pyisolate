@@ -243,16 +243,12 @@ def example_entrypoint():
                     ("medium_tensor", (512, 512)),  # 262K elements, ~1MB
                     ("large_tensor", (1024, 1024)),  # 1M elements, ~4MB
                     ("image_8k", (3, 8192, 8192)),  # 201M elements, ~800MB (8K RGB image)
-                    ("model_6gb", (40132, 40132)),  # 1.6B elements, ~6GB (modern LLM/diffusion model)
                 ]
 
                 # Create CPU tensors and add to test data
                 for name, size in tensor_specs:
                     try:
-                        if name == "model_6gb":
-                            print(f"  Creating {name} tensor {size} (WARNING: This will use ~6GB RAM)...")
-                        else:
-                            print(f"  Creating {name} tensor {size}...")
+                        print(f"  Creating {name} tensor {size}...")
 
                         with torch.inference_mode():
                             tensor = torch.randn(*size)
@@ -265,7 +261,7 @@ def example_entrypoint():
                         if not no_gpu and torch.cuda.is_available():
                             try:
                                 # Skip GPU for very large tensors to avoid OOM
-                                if name == "image_8k" or name == "model_6gb":
+                                if name == "image_8k":
                                     print(f"    Creating GPU version of {name} (may use significant VRAM)...")
                                     with torch.inference_mode():
                                         gpu_tensor = tensor.cuda()
@@ -302,6 +298,30 @@ def example_entrypoint():
                 test_data.append((name, array))
             except MemoryError as e:
                 print(f"  Skipping {name}: {e}")
+
+        # Add the 6GB model test at the very end if torch is available
+        if torch_available and not no_torch:
+            try:
+                print("  Creating model_6gb tensor (40132, 40132) (WARNING: This will use ~6GB RAM)...")
+                with torch.inference_mode():
+                    model_6gb_tensor = torch.randn(40132, 40132)
+                test_data.append(("model_6gb_cpu", model_6gb_tensor))
+
+                size_gb = (model_6gb_tensor.numel() * 4) / (1024**3)
+                print(f"    CPU tensor created successfully ({size_gb:.2f}GB)")
+
+                # Try GPU version if available
+                if not no_gpu and torch.cuda.is_available():
+                    try:
+                        print("    Creating GPU version of model_6gb (may use significant VRAM)...")
+                        with torch.inference_mode():
+                            gpu_tensor = model_6gb_tensor.cuda()
+                        test_data.append(("model_6gb_gpu", gpu_tensor))
+                        print("    GPU tensor created successfully")
+                    except RuntimeError as gpu_e:
+                        print(f"    GPU tensor failed: {gpu_e}")
+            except RuntimeError as e:
+                print(f"  Skipping model_6gb: {e}")
 
         from tests.test_benchmarks import BenchmarkRunner
 
