@@ -9,6 +9,7 @@ with varying numbers of extensions and different tensor sharing configurations.
 import argparse
 import asyncio
 import gc
+import platform
 import sys
 import time
 from pathlib import Path
@@ -58,6 +59,7 @@ class MemoryTracker:
         self.nvml_initialized = False
         self.gpu_handle = None
         self.baseline_gpu_memory_mb = 0
+        self.platform = platform.system()
 
         if NVML_AVAILABLE and nvml:
             try:
@@ -68,8 +70,12 @@ class MemoryTracker:
                 # Store baseline GPU memory usage
                 mem_info = nvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
                 self.baseline_gpu_memory_mb = mem_info.used / 1024 / 1024
+                print(
+                    f"NVML initialized on {self.platform}. "
+                    f"Initial GPU memory: {self.baseline_gpu_memory_mb:.1f} MB"
+                )
             except Exception as e:
-                print(f"Failed to initialize NVML: {e}")
+                print(f"Failed to initialize NVML on {self.platform}: {e}")
                 self.nvml_initialized = False
 
     def get_process_tree_pids(self) -> list[int]:
@@ -132,6 +138,15 @@ class MemoryTracker:
                 vram_delta = current_used_mb - self.baseline_gpu_memory_mb
                 memory_info["host_vram_mb"] = max(0, vram_delta)
 
+                # Debug output for Windows
+                if self.platform == "Windows":
+                    print(
+                        f"[DEBUG Windows] Current GPU: {current_used_mb:.1f} MB, "
+                        f"Baseline: {self.baseline_gpu_memory_mb:.1f} MB, "
+                        f"Delta: {vram_delta:.1f} MB",
+                        file=sys.stderr,
+                    )
+
             except Exception as e:
                 print(f"Error getting GPU memory usage: {e}")
 
@@ -162,9 +177,15 @@ class MemoryTracker:
         if self.nvml_initialized and self.gpu_handle:
             try:
                 mem_info = nvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
+                old_baseline = self.baseline_gpu_memory_mb
                 self.baseline_gpu_memory_mb = mem_info.used / 1024 / 1024
+                print(
+                    f"[DEBUG {self.platform}] Reset baseline from {old_baseline:.1f} MB "
+                    f"to {self.baseline_gpu_memory_mb:.1f} MB",
+                    file=sys.stderr,
+                )
             except Exception as e:
-                print(f"Error resetting GPU memory baseline: {e}")
+                print(f"Error resetting GPU memory baseline on {self.platform}: {e}")
 
     def __del__(self):
         """Cleanup NVML on deletion."""
@@ -297,11 +318,23 @@ class MemoryBenchmarkRunner:
                 ExtensionManagerConfig(venv_root_path=str(self.test_base.test_root / "extension-venvs")),
             )
 
-            # Measure memory before creating extensions
+            # Clean up and reset baseline before measuring
             gc.collect()
             if CUDA_AVAILABLE:
                 torch.cuda.empty_cache()
+                torch.cuda.synchronize()  # Ensure all operations complete
+
+            # Reset GPU memory baseline for this test
+            self.memory_tracker.reset_baseline()
+
+            # Wait a moment for memory to settle
+            await asyncio.sleep(1)
+
             before_memory = self.memory_tracker.get_memory_usage()
+            print(
+                f"Baseline GPU memory: {before_memory.get('gpu_used_mb', 0):.1f} MB "
+                f"(baseline: {self.memory_tracker.baseline_gpu_memory_mb:.1f} MB)"
+            )
 
             # Create and load extensions
             print(f"Creating {num_extensions} extensions...")
@@ -337,11 +370,20 @@ class MemoryBenchmarkRunner:
             with torch.inference_mode():
                 if use_cuda and CUDA_AVAILABLE:
                     test_tensor = torch.randn(*test_tensor_size, device="cuda")
+                    torch.cuda.synchronize()  # Ensure tensor creation completes
                 else:
                     test_tensor = torch.randn(*test_tensor_size)
 
             tensor_size_mb = test_tensor.element_size() * test_tensor.numel() / (1024 * 1024)
             print(f"Tensor size: {tensor_size_mb:.1f} MB on {test_tensor.device}")
+
+            # Check memory after tensor creation
+            if use_cuda and CUDA_AVAILABLE:
+                post_tensor_memory = self.memory_tracker.get_memory_usage()
+                print(
+                    f"GPU memory after tensor creation: {post_tensor_memory.get('gpu_used_mb', 0):.1f} MB "
+                    f"(delta: {post_tensor_memory.get('host_vram_mb', 0):.1f} MB)"
+                )
 
             # Send tensor to all extensions
             print(f"Sending tensor to {num_extensions} extensions...")
@@ -352,11 +394,18 @@ class MemoryBenchmarkRunner:
                     info = await ext.store_tensor(f"test_tensor_{i}", test_tensor)
                     if i == 0:
                         print(f"  First extension stored: {info}")
+                    # Force GPU sync after each send for accurate memory tracking
+                    if use_cuda and CUDA_AVAILABLE:
+                        torch.cuda.synchronize()
                 except Exception as e:
                     print(f"  Failed to send to {ext_name}: {e}")
 
             send_time = time.time() - send_start
             print(f"Send completed in {send_time:.2f}s")
+
+            # Force final sync before measuring
+            if use_cuda and CUDA_AVAILABLE:
+                torch.cuda.synchronize()
 
             # Wait for memory to settle
             await asyncio.sleep(2)
@@ -413,6 +462,13 @@ class MemoryBenchmarkRunner:
             print(f"  RAM per extension: {result['ram_per_extension_mb']:.1f} MB")
             print(f"  RAM for tensor transfer: {result['send_ram_delta_mb']:.1f} MB")
 
+            # Debug GPU memory tracking
+            print("\nGPU Memory Details:")
+            print(f"  Before: {before_memory.get('gpu_used_mb', 0):.1f} MB")
+            print(f"  After Load: {after_load_memory.get('gpu_used_mb', 0):.1f} MB")
+            print(f"  After Send: {after_send_memory.get('gpu_used_mb', 0):.1f} MB")
+            print(f"  Baseline: {self.memory_tracker.baseline_gpu_memory_mb:.1f} MB")
+
             # Show GPU memory if this is a GPU test
             if use_cuda and result["load_gpu_delta_mb"] > 0:
                 print(f"  GPU memory for tensor creation: {result['load_gpu_delta_mb']:.1f} MB")
@@ -426,6 +482,11 @@ class MemoryBenchmarkRunner:
             # Cleanup
             print("\nCleaning up extensions...")
             manager.stop_all_extensions()
+            del test_tensor
+            gc.collect()
+            if CUDA_AVAILABLE:
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
 
             # Wait for cleanup
             await asyncio.sleep(2)
@@ -850,12 +911,16 @@ Examples:
         print("PyTorch not available. Install with: pip install torch")
         return 1
 
+    print(f"Running on: {platform.system()} {platform.release()}")
+
     if not CUDA_AVAILABLE:
         print("CUDA not available. GPU memory tests will be skipped.")
 
     if not NVML_AVAILABLE:
         print("nvidia-ml-py3 not installed. Install with: pip install nvidia-ml-py3")
         print("VRAM tracking will not be available.")
+    else:
+        print("NVML available for GPU memory tracking")
 
     # Determine what to test
     test_small = not args.large_only
