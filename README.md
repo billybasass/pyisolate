@@ -6,6 +6,10 @@
 
 pyisolate enables you to run Python extensions with conflicting dependencies in the same application by automatically creating isolated virtual environments for each extension. Extensions communicate with the host process through a transparent RPC system, making the isolation invisible to your code.
 
+## Documentation
+
+You can find documentation on this library here: https://comfy-org.github.io/pyisolate/
+
 ## Key Benefits
 
 - 🔒 **Dependency Isolation**: Run extensions with incompatible dependencies (e.g., numpy 1.x and 2.x) in the same application
