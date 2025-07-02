@@ -334,12 +334,18 @@ class Extension(Generic[T]):
 
         uv_common_args = []
 
+        # Set up a local cache directory next to venvs to ensure same filesystem
+        # This enables hardlinking and saves disk space
+        cache_dir = self.venv_path.parent / ".uv_cache"
+        cache_dir.mkdir(exist_ok=True)
+        uv_common_args.extend(["--cache-dir", str(cache_dir)])
+
         # Install the same version of torch as the current process
         if self.config["share_torch"]:
             import torch
 
             torch_version = torch.__version__
-            if os.name == "nt" and torch_version.endswith("+cpu"):
+            if torch_version.endswith("+cpu"):
                 # On Windows, the '+cpu' is not included in the version string
                 torch_version = torch_version[:-4]  # Remove the '+cpu' suffix
             cuda_version = torch.version.cuda  # type: ignore
