@@ -15,18 +15,28 @@ import asyncio
 import gc
 import statistics
 import time
-from typing import Optional
+from typing import Optional, Any, List
 
 import numpy as np
 import psutil
 import pytest
 from tabulate import tabulate
+import os
 
 try:
     import torch
 
     TORCH_AVAILABLE = True
     CUDA_AVAILABLE = torch.cuda.is_available()
+    # Set CUDA device from environment variable if specified
+    cuda_env = os.environ.get("PYISOLATE_CUDA_DEVICE")
+    if CUDA_AVAILABLE and cuda_env is not None:
+        torch.cuda.set_device(int(cuda_env))
+        print(f"[PyIsolate] Using CUDA device {cuda_env}: {torch.cuda.get_device_name(int(cuda_env))}")
+    elif CUDA_AVAILABLE:
+        print(f"[PyIsolate] Using default CUDA device {torch.cuda.current_device()}: {torch.cuda.get_device_name(torch.cuda.current_device())}")
+    else:
+        print("[PyIsolate] CUDA not available, using CPU only.")
 except ImportError:
     TORCH_AVAILABLE = False
     CUDA_AVAILABLE = False
@@ -190,6 +200,8 @@ class BenchmarkRunner:
 @pytest.mark.asyncio
 class TestRPCBenchmarks(IntegrationTestBase):
     """Benchmark tests for RPC call overhead."""
+    benchmark_ext_shared: Optional[object] = None
+    runner: Optional[BenchmarkRunner] = None
 
     @pytest.fixture(autouse=True)
     async def setup_benchmark_environment(self):
@@ -305,14 +317,14 @@ def example_entrypoint():
     return BenchmarkExtension()
 '''
 
-        self.create_extension(
-            "benchmark_ext",
-            benchmark_extension_code,
-            dependencies=["numpy>=1.26.0", "torch>=2.0.0"] if TORCH_AVAILABLE else ["numpy>=1.26.0"],
-        )
+        # self.create_extension(
+        #     "benchmark_ext",
+        #     benchmark_extension_code,
+        #     dependencies=["numpy>=1.26.0", "torch>=2.0.0"] if TORCH_AVAILABLE else ["numpy>=1.26.0"],
+        # )
 
         # Load extensions
-        extensions_config = [{"name": "benchmark_ext"}]
+        extensions_config: List[dict[str, Any]] = [{"name": "benchmark_ext"}]
 
         # Add share_torch config if available
         if TORCH_AVAILABLE:
@@ -320,6 +332,11 @@ def example_entrypoint():
 
         self.extensions = await self.load_extensions(extensions_config[:1])  # Load one for now
         self.benchmark_ext = self.extensions[0]
+        self.benchmark_ext_shared = None
+        if TORCH_AVAILABLE and len(extensions_config) > 1:
+            shared_exts = await self.load_extensions([extensions_config[1]])
+            if shared_exts:
+                self.benchmark_ext_shared = shared_exts[0]
 
         # Initialize benchmark runner
         self.runner = BenchmarkRunner(warmup_runs=3, benchmark_runs=15)
@@ -336,6 +353,7 @@ def example_entrypoint():
         print("SMALL DATA BENCHMARKS")
         print("=" * 60)
 
+        assert self.runner is not None  # type: ignore
         # Integer benchmarks
         test_int = 42
         await self.runner.run_benchmark(
@@ -361,6 +379,7 @@ def example_entrypoint():
         print("LARGE DATA BENCHMARKS")
         print("=" * 60)
 
+        assert self.runner is not None  # type: ignore
         # Large numpy array (10MB)
         large_array = np.random.random((1024, 1024))  # ~8MB float64
 
@@ -393,6 +412,7 @@ def example_entrypoint():
         print("TORCH TENSOR BENCHMARKS")
         print("=" * 60)
 
+        assert self.runner is not None  # type: ignore
         # Small tensor (CPU)
         with torch.inference_mode():
             small_tensor_cpu = torch.randn(100, 100)  # ~40KB
@@ -440,6 +460,7 @@ def example_entrypoint():
         print("COMPLEX CALL PATTERN BENCHMARKS")
         print("=" * 60)
 
+        assert self.runner is not None  # type: ignore
         # Recursive calls through host singleton
         await self.runner.run_benchmark(
             "Recursive Host Calls (depth=3)", lambda: self.benchmark_ext.recursive_host_call(3)
@@ -455,10 +476,12 @@ def example_entrypoint():
         # Small delay to ensure this runs last
         await asyncio.sleep(0.1)
 
+        assert self.runner is not None  # type: ignore
         self.runner.print_summary()
 
         # Basic assertions to ensure benchmarks ran
         assert len(self.runner.results) > 0, "No benchmark results found"
+        assert self.runner is not None  # type: ignore
 
         # Verify we have both local and RPC results for comparison
         local_results = [r for r in self.runner.results if "local" in r.name.lower()]

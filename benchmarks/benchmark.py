@@ -15,6 +15,7 @@ import argparse
 import asyncio
 import sys
 from pathlib import Path
+import platform
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -22,6 +23,8 @@ sys.path.insert(0, str(project_root))
 
 # Import after path setup
 from tests.test_benchmarks import TestRPCBenchmarks  # noqa: E402
+
+# pyright: reportMissingImports=false
 
 
 async def run_benchmarks(
@@ -192,13 +195,13 @@ def example_entrypoint():
 
         # Assign extension references based on what was created
         test_instance.benchmark_ext = None
-        test_instance.benchmark_ext_shared = None
+        test_instance.benchmark_ext_shared = None  # type: ignore
 
         for i, ext_config in enumerate(extensions_to_create):
             if ext_config["name"] == "benchmark_ext":
                 test_instance.benchmark_ext = test_instance.extensions[i]
             elif ext_config["name"] == "benchmark_ext_shared":
-                test_instance.benchmark_ext_shared = test_instance.extensions[i]
+                test_instance.benchmark_ext_shared = test_instance.extensions[i]  # type: ignore
 
         # Initialize benchmark runner
         from tests.test_benchmarks import BenchmarkRunner
@@ -245,7 +248,6 @@ def example_entrypoint():
                     ("image_8k", (3, 8192, 8192)),  # 201M elements, ~800MB (8K RGB image)
                 ]
 
-                # Create CPU tensors and add to test data
                 for name, size in tensor_specs:
                     try:
                         print(f"  Creating {name} tensor {size}...")
@@ -275,6 +277,22 @@ def example_entrypoint():
                             except RuntimeError as gpu_e:
                                 print(f"    GPU tensor failed: {gpu_e}")
 
+                        # --- XPU support: create XPU tensors if available ---
+                        if not no_gpu and hasattr(torch, "xpu") and torch.xpu.is_available():
+                            try:
+                                if name == "image_8k":
+                                    print(f"    Creating XPU version of {name} (may use significant VRAM)...")
+                                    with torch.inference_mode():
+                                        xpu_tensor = tensor.to("xpu")
+                                    test_data.append((f"{name}_xpu", xpu_tensor))
+                                    print("    XPU tensor created successfully")
+                                else:
+                                    with torch.inference_mode():
+                                        xpu_tensor = tensor.to("xpu")
+                                    test_data.append((f"{name}_xpu", xpu_tensor))
+                                    print("    XPU tensor created successfully")
+                            except RuntimeError as xpu_e:
+                                print(f"    XPU tensor failed: {xpu_e}")
                     except RuntimeError as e:
                         print(f"  Skipping {name}: {e}")
 
@@ -320,6 +338,16 @@ def example_entrypoint():
                         print("    GPU tensor created successfully")
                     except RuntimeError as gpu_e:
                         print(f"    GPU tensor failed: {gpu_e}")
+                # --- XPU support: create XPU tensor for 6GB model if available ---
+                if not no_gpu and hasattr(torch, "xpu") and torch.xpu.is_available():
+                    try:
+                        print("    Creating XPU version of model_6gb (may use significant VRAM)...")
+                        with torch.inference_mode():
+                            xpu_tensor = model_6gb_tensor.to("xpu")
+                        test_data.append(("model_6gb_xpu", xpu_tensor))
+                        print("    XPU tensor created successfully")
+                    except RuntimeError as xpu_e:
+                        print(f"    XPU tensor failed: {xpu_e}")
             except RuntimeError as e:
                 print(f"  Skipping model_6gb: {e}")
 
@@ -362,10 +390,11 @@ def example_entrypoint():
 
                         # Stop the extension to clean up the stuck process
                         try:
-                            test_instance.manager.stop_extension("benchmark_ext")
+                            if getattr(test_instance, 'manager', None) is not None:
+                                test_instance.manager.stop_extension("benchmark_ext")  # type: ignore
                             print("    Extension stopped successfully")
                             # Mark as None so we don't try to use it again
-                            test_instance.benchmark_ext = None
+                            test_instance.benchmark_ext = None  # type: ignore
                         except Exception as stop_e:
                             print(f"    Failed to stop extension: {stop_e}")
                     else:
@@ -377,7 +406,7 @@ def example_entrypoint():
                 skipped_tests[test_name] = "Extension stopped"
 
             # Test with share_torch extension (if available and torch tensor)
-            if test_instance.benchmark_ext_shared is not None:
+            if test_instance.benchmark_ext_shared is not None:  # type: ignore
                 # For torch tensors, always test shared mode
                 # For other data types, test shared mode only if torch_mode includes it
                 should_test_shared = torch_mode in ["both", "shared"]
@@ -386,7 +415,7 @@ def example_entrypoint():
                     print(f"  Testing {name} with share_torch...")
 
                     async def benchmark_func_shared(data=data):
-                        return await test_instance.benchmark_ext_shared.do_stuff(data)
+                        return await test_instance.benchmark_ext_shared.do_stuff(data)  # type: ignore
 
                     try:
                         result = await runner.run_benchmark(f"{name} (share_torch)", benchmark_func_shared)
@@ -406,10 +435,11 @@ def example_entrypoint():
 
                             # Stop the extension to clean up the stuck process
                             try:
-                                test_instance.manager.stop_extension("benchmark_ext_shared")
+                                if getattr(test_instance, 'manager', None) is not None:
+                                    test_instance.manager.stop_extension("benchmark_ext_shared")  # type: ignore
                                 print("    Extension stopped successfully")
                                 # Mark as None so we don't try to use it again
-                                test_instance.benchmark_ext_shared = None
+                                test_instance.benchmark_ext_shared = None  # type: ignore
                             except Exception as stop_e:
                                 print(f"    Failed to stop extension: {stop_e}")
                         else:
@@ -520,6 +550,15 @@ Examples:
         help="Which torch mode to test: both, standard (no share_torch), or shared (share_torch only)",
     )
 
+    parser.add_argument(
+        "--backend",
+        choices=["auto", "cuda", "xpu"],
+        default="auto",
+        help="Device backend to use: auto (default), cuda (NVIDIA/AMD ROCm), or xpu (Intel oneAPI)",
+    )
+
+    parser.add_argument("--device", type=int, default=None, help="CUDA device index to use (if applicable)")
+
     args = parser.parse_args()
 
     # Check dependencies
@@ -532,6 +571,71 @@ Examples:
         print("Please install benchmark dependencies with:")
         print("    pip install -e .[bench]")
         return 1
+
+    # Set device and backend
+    backend = args.backend
+    device_idx = args.device
+    device_str = "cpu"
+    device_name = "cpu"
+    backend_used = "cpu"
+    try:
+        import torch
+        cuda_available = torch.cuda.is_available()
+        xpu_available = hasattr(torch, "xpu") and torch.xpu.is_available()
+        # Auto backend selection
+        if backend == "auto":
+            if cuda_available:
+                backend = "cuda"
+            elif xpu_available:
+                backend = "xpu"
+            else:
+                backend = "cpu"
+        if backend == "cuda" and cuda_available:
+            # Use getattr to avoid linter errors for torch.version.hip
+            torch_version = getattr(torch, 'version', None)
+            hip_version = getattr(torch_version, 'hip', None) if torch_version else None
+            if platform.system() == "Linux" and hip_version is not None:
+                print("[PyIsolate] ROCm (AMD) backend detected on Linux.")
+            elif platform.system() == "Windows":
+                print("[PyIsolate] ROCm is not supported on Windows. Falling back to CPU.")
+                backend = "cpu"
+            if backend == "cuda":
+                if device_idx is not None:
+                    torch.cuda.set_device(device_idx)
+                    device_str = f"cuda{device_idx}"
+                    device_name = torch.cuda.get_device_name(device_idx)
+                else:
+                    device_idx = torch.cuda.current_device()
+                    device_str = f"cuda{device_idx}"
+                    device_name = torch.cuda.get_device_name(device_idx)
+                backend_used = "cuda"
+                print(f"[PyIsolate] Using CUDA/ROCm device {device_idx}: {device_name}")
+        elif backend == "xpu" and xpu_available:
+            if device_idx is not None:
+                torch.xpu.set_device(device_idx)
+                device_str = f"xpu{device_idx}"
+                device_name = torch.xpu.get_device_name(device_idx) if hasattr(torch.xpu, "get_device_name") else "Intel XPU"
+            else:
+                device_idx = torch.xpu.current_device()
+                device_str = f"xpu{device_idx}"
+                device_name = torch.xpu.get_device_name(device_idx) if hasattr(torch.xpu, "get_device_name") else "Intel XPU"
+            backend_used = "xpu"
+            print(f"[PyIsolate] Using Intel XPU device {device_idx}: {device_name}")
+        else:
+            print("[PyIsolate] No supported GPU backend available, using CPU only.")
+    except Exception as e:
+        print(f"[PyIsolate] Error setting device/backend: {e}")
+
+    # Generate results filename with backend and device info
+    import socket, datetime
+    computer = socket.gethostname()
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    device_tag = f"{backend_used}{device_idx if device_idx is not None else 0}"
+    if device_str != "cpu":
+        safe_device_name = device_name.replace(" ", "").replace("/", "-")
+        device_tag = f"{backend_used}{device_idx if device_idx is not None else 0}-{safe_device_name}"
+    results_filename = f"benchmark_results_{computer}_{device_tag}_{timestamp}.txt"
+    print(f"\n[PyIsolate] Results will be saved to: {results_filename}")
 
     # Run benchmarks
     try:

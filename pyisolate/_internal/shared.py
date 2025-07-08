@@ -27,6 +27,43 @@ else:
 
     typehint_mp = multiprocessing
 
+import torch
+from torch.utils import dlpack as _dlpack
+import numpy as np
+
+# Utility: Convert XPU tensor to DLPack capsule if needed
+
+def maybe_to_dlpack(obj):
+    if isinstance(obj, torch.Tensor) and hasattr(obj, 'device') and obj.device.type == 'xpu':
+        return torch.utils.dlpack.to_dlpack(obj)  # type: ignore[attr-defined]
+    return obj
+
+# Utility: Convert DLPack capsule to XPU tensor if needed
+
+def maybe_from_dlpack(obj):
+    # DLPack capsules are PyCapsule, not torch.Tensor
+    if not isinstance(obj, torch.Tensor) and hasattr(obj, '__dlpack__'):
+        return torch.utils.dlpack.from_dlpack(obj)  # type: ignore[attr-defined]
+    # For raw PyCapsule (older PyTorch), try fallback
+    if type(obj).__name__ == 'PyCapsule':
+        return torch.utils.dlpack.from_dlpack(obj)  # type: ignore[attr-defined]
+    return obj
+
+def maybe_serialize_tensor(obj):
+    if isinstance(obj, torch.Tensor) and hasattr(obj, 'device'):
+        if obj.device.type == 'xpu':
+            # Fallback: send as CPU buffer + metadata
+            arr = obj.cpu().numpy()
+            return ('xpu_tensor', arr.tobytes(), arr.shape, str(arr.dtype))
+    return obj
+
+def maybe_deserialize_tensor(obj):
+    if isinstance(obj, tuple) and len(obj) == 4 and obj[0] == 'xpu_tensor':
+        _, buf, shape, dtype = obj
+        arr = np.frombuffer(buf, dtype=dtype).reshape(shape)
+        return torch.from_numpy(arr).to('xpu')
+    return obj
+
 logger = logging.getLogger(__name__)
 
 # TODO - Remove me
@@ -343,6 +380,7 @@ class AsyncRPC:
                     self.default_loop.call_soon_threadsafe(self.blocking_future.set_result, None)
                 break
 
+            # Device-aware deserialization for args/kwargs/result
             if item["kind"] == "response":
                 debugprint("Got response: ", item)
                 call_id = item["call_id"]
@@ -360,10 +398,9 @@ class AsyncRPC:
                     else:
                         debugprint("Got result: ", item["result"])
                         set_result = pending_request["future"].set_result
-                        result = item["result"]
+                        result = maybe_deserialize_tensor(item["result"])
                         pending_request["calling_loop"].call_soon_threadsafe(set_result, result)
                 else:
-                    # If we don"t have a pending request, I guess we just continue on
                     continue
             elif item["kind"] == "call":
                 request = cast(RPCRequest, item)
@@ -371,26 +408,29 @@ class AsyncRPC:
                 request_parent = request.get("parent_call_id", None)
                 call_id = request["call_id"]
 
+                # Device-aware deserialization for args/kwargs
+                args = tuple(maybe_deserialize_tensor(arg) for arg in request["args"])
+                kwargs = {k: maybe_deserialize_tensor(v) for k, v in request["kwargs"].items()}
+                request_mod = dict(request)
+                request_mod["args"] = args
+                request_mod["kwargs"] = kwargs
+
                 call_on_loop = self.default_loop
                 if request_parent is not None:
-                    # Get pending request without holding the lock for long
                     pending_request = None
                     with self.lock:
                         pending_request = self.pending.get(request_parent, None)
                     if pending_request:
                         call_on_loop = pending_request["calling_loop"]
 
-                async def call_with_context(captured_request: RPCRequest):
-                    # Set the context variable directly when the coroutine actually runs
+                async def call_with_context(captured_request):
                     token = self.handling_call_id.set(captured_request["call_id"])
                     try:
-                        # Run the dispatch directly
                         return await self.dispatch_request(captured_request)
                     finally:
-                        # Reset the context variable when done
                         self.handling_call_id.reset(token)
 
-                asyncio.run_coroutine_threadsafe(coro=call_with_context(request), loop=call_on_loop)
+                asyncio.run_coroutine_threadsafe(coro=call_with_context(request_mod), loop=call_on_loop)
             else:
                 raise ValueError(f"Unknown item type: {type(item)}")
 
@@ -407,14 +447,17 @@ class AsyncRPC:
                 id_gen += 1
                 with self.lock:
                     self.pending[call_id] = item
+                # Device-aware serialization for args/kwargs
+                args = tuple(maybe_serialize_tensor(arg) for arg in item["args"])
+                kwargs = {k: maybe_serialize_tensor(v) for k, v in item["kwargs"].items()}
                 request = RPCRequest(
                     kind="call",
                     object_id=item["object_id"],
                     call_id=call_id,
                     parent_call_id=item["parent_call_id"],
                     method=item["method"],
-                    args=item["args"],
-                    kwargs=item["kwargs"],
+                    args=args,
+                    kwargs=kwargs,
                 )
                 try:
                     self.send_queue.put(request)
@@ -422,32 +465,31 @@ class AsyncRPC:
                     error_msg = str(e)
                     if "CUDA error: out of memory" in error_msg or "out of memory" in error_msg.lower():
                         print(f"CUDA OOM error while sending RPC request for {item['method']}: {error_msg}")
-                        # Set exception on the future to notify the caller
-                        with self.lock:
-                            pending = self.pending.pop(call_id, None)
-                        if pending:
-                            pending["calling_loop"].call_soon_threadsafe(
-                                pending["future"].set_exception,
-                                RuntimeError(f"CUDA out of memory during request transmission: {error_msg}"),
+                        try:
+                            simple_response = RPCRequest(
+                                kind="call",
+                                object_id=item["object_id"],
+                                call_id=call_id,
+                                parent_call_id=item["parent_call_id"],
+                                method=item["method"],
+                                args=(),
+                                kwargs={},
                             )
+                            self.send_queue.put(simple_response)
+                        except Exception:
+                            print("Failed to send even a simple error request - process may be stuck")
                     else:
                         print(f"Error sending RPC request: {error_msg}")
-                        # Set exception on the future
-                        with self.lock:
-                            pending = self.pending.pop(call_id, None)
-                        if pending:
-                            pending["calling_loop"].call_soon_threadsafe(pending["future"].set_exception, e)
-            elif item["kind"] == "response":
-                try:
-                    self.send_queue.put(item)
-                except Exception as e:
-                    error_msg = str(e)
-                    if "CUDA error: out of memory" in error_msg or "out of memory" in error_msg.lower():
-                        print(f"CUDA OOM error while sending RPC response: {error_msg}")
-                    else:
-                        print(f"Error sending RPC response: {error_msg}")
+                        raise
             else:
-                raise ValueError(f"Unknown item type: {type(item)}")
+                # For responses, patch result for device-aware serialization
+                response = item
+                if "result" in response:
+                    response_mod = dict(response)
+                    response_mod["result"] = maybe_serialize_tensor(response["result"])
+                    self.send_queue.put(response_mod)  # type: ignore
+                else:
+                    self.send_queue.put(response)
 
 
 class SingletonMetaclass(type):

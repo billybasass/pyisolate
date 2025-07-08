@@ -64,13 +64,13 @@ class MemoryTracker:
 
         if NVML_AVAILABLE and nvml:
             try:
-                nvml.nvmlInit()
+                nvml.nvmlInit()  # type: ignore[attr-defined]
                 self.nvml_initialized = True
                 # Get the first GPU
-                self.gpu_handle = nvml.nvmlDeviceGetHandleByIndex(0)
+                self.gpu_handle = nvml.nvmlDeviceGetHandleByIndex(0)  # type: ignore[attr-defined]
                 # Store baseline GPU memory usage
-                mem_info = nvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
-                self.baseline_gpu_memory_mb = mem_info.used / 1024 / 1024
+                mem_info = nvml.nvmlDeviceGetMemoryInfo(self.gpu_handle) if nvml is not None else None  # type: ignore[attr-defined]
+                self.baseline_gpu_memory_mb = (mem_info.used / 1024 / 1024) if mem_info is not None else 0
                 print(
                     f"NVML initialized on {self.platform}. "
                     f"Initial GPU memory: {self.baseline_gpu_memory_mb:.1f} MB"
@@ -114,12 +114,12 @@ class MemoryTracker:
         """Fallback method to get GPU memory on Windows using nvidia-smi."""
         current_used = self._get_gpu_memory_nvidia_smi()
         if current_used is not None:
-            memory_info["gpu_used_mb"] = current_used
-            memory_info["total_vram_mb"] = current_used
+            memory_info["gpu_used_mb"] = float(current_used)
+            memory_info["total_vram_mb"] = float(current_used)
 
             # Calculate delta from baseline
-            vram_delta = current_used - self.baseline_gpu_memory_mb
-            memory_info["host_vram_mb"] = max(0, vram_delta)
+            vram_delta = float(current_used) - float(self.baseline_gpu_memory_mb)
+            memory_info["host_vram_mb"] = float(max(0.0, vram_delta))
 
             # Try to get total GPU memory
             try:
@@ -155,52 +155,51 @@ class MemoryTracker:
     def get_memory_usage(self) -> dict[str, float]:
         """Get current memory usage for host and all child processes."""
         memory_info = {
-            "host_ram_mb": 0,
-            "children_ram_mb": 0,
-            "total_ram_mb": 0,
-            "host_vram_mb": 0,
-            "total_vram_mb": 0,
-            "gpu_used_mb": 0,
-            "gpu_total_mb": 0,
-            "num_processes": 1,
+            "host_ram_mb": 0.0,
+            "children_ram_mb": 0.0,
+            "total_ram_mb": 0.0,
+            "host_vram_mb": 0.0,
+            "total_vram_mb": 0.0,
+            "gpu_used_mb": 0.0,
+            "gpu_total_mb": 0.0,
+            "num_processes": 1.0,  # float for type consistency
         }
 
         # Get RAM usage
         try:
             # Host process
             host_info = self.process.memory_info()
-            memory_info["host_ram_mb"] = host_info.rss / 1024 / 1024
+            memory_info["host_ram_mb"] = (host_info.rss or 0) / 1024 / 1024
 
             # Child processes
             children = self.process.children(recursive=True)
-            memory_info["num_processes"] = 1 + len(children)
+            memory_info["num_processes"] = 1.0 + len(children)
 
             for child in children:
                 try:
                     child_info = child.memory_info()
-                    memory_info["children_ram_mb"] += child_info.rss / 1024 / 1024
+                    memory_info["children_ram_mb"] += (child_info.rss or 0) / 1024 / 1024
                 except psutil.NoSuchProcess:
                     pass
 
-            memory_info["total_ram_mb"] = memory_info["host_ram_mb"] + memory_info["children_ram_mb"]
+            memory_info["total_ram_mb"] = (memory_info["host_ram_mb"] or 0) + (memory_info["children_ram_mb"] or 0)
 
         except Exception as e:
             print(f"Error getting RAM usage: {e}")
 
         # Get GPU memory usage - use total system VRAM since extensions run in separate processes
-        if self.nvml_initialized and self.gpu_handle:
+        if self.nvml_initialized and self.gpu_handle and nvml is not None:
             try:
                 # Get total GPU memory info
-                mem_info = nvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
-                current_used_mb = mem_info.used / 1024 / 1024
+                mem_info = nvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)  # type: ignore[attr-defined]
+                current_used_mb = float(mem_info.used or 0) / 1024 / 1024 if mem_info else 0
                 memory_info["gpu_used_mb"] = current_used_mb
-                memory_info["gpu_total_mb"] = mem_info.total / 1024 / 1024
+                memory_info["gpu_total_mb"] = float(mem_info.total or 0) / 1024 / 1024 if mem_info else 0
                 memory_info["total_vram_mb"] = current_used_mb
 
                 # Calculate VRAM usage relative to baseline (captures all processes)
-                # This is more reliable than per-process tracking, especially on Windows
-                vram_delta = current_used_mb - self.baseline_gpu_memory_mb
-                memory_info["host_vram_mb"] = max(0, vram_delta)
+                vram_delta = current_used_mb - (self.baseline_gpu_memory_mb or 0)
+                memory_info["host_vram_mb"] = max(0.0, vram_delta)
             except Exception as e:
                 print(f"Error getting GPU memory usage via NVML: {e}")
                 if self.platform == "Windows":
@@ -235,11 +234,11 @@ class MemoryTracker:
 
     def reset_baseline(self):
         """Reset the baseline GPU memory measurement."""
-        if self.nvml_initialized and self.gpu_handle:
+        if self.nvml_initialized and self.gpu_handle and nvml is not None:
             try:
-                mem_info = nvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
+                mem_info = nvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)  # type: ignore[attr-defined]
                 old_baseline = self.baseline_gpu_memory_mb
-                self.baseline_gpu_memory_mb = mem_info.used / 1024 / 1024
+                self.baseline_gpu_memory_mb = float(mem_info.used or 0) / 1024 / 1024 if mem_info else 0
                 print(
                     f"[DEBUG {self.platform}] Reset baseline from {old_baseline:.1f} MB "
                     f"to {self.baseline_gpu_memory_mb:.1f} MB",
@@ -250,9 +249,9 @@ class MemoryTracker:
 
     def __del__(self):
         """Cleanup NVML on deletion."""
-        if self.nvml_initialized:
+        if self.nvml_initialized and nvml is not None:
             with contextlib.suppress(Exception):
-                nvml.nvmlShutdown()
+                nvml.nvmlShutdown()  # type: ignore[attr-defined]
 
 
 async def create_memory_benchmark_extension() -> str:
@@ -333,6 +332,8 @@ class MemoryBenchmarkRunner:
 
     def __init__(self, test_base: IntegrationTestBase):
         self.test_base = test_base
+        if self.test_base.test_root is None:
+            raise RuntimeError("test_root is not set on test_base. Did you await setup_test_environment() successfully?")
         self.memory_tracker = MemoryTracker()
         self.results = []
 
@@ -348,12 +349,25 @@ class MemoryBenchmarkRunner:
 
         baseline = self.memory_tracker.get_memory_usage()
         print(f"Baseline: {baseline['total_ram_mb']:.1f} MB RAM, {baseline['total_vram_mb']:.1f} MB VRAM")
-        if baseline["gpu_total_mb"] > 0:
-            gpu_pct = (baseline["gpu_used_mb"] / baseline["gpu_total_mb"]) * 100
+        # Print GPU memory usage if available
+        gpu_total = baseline.get("gpu_total_mb", 0.0)
+        gpu_used = baseline.get("gpu_used_mb", 0.0)
+        try:
+            gpu_total = float(gpu_total) if gpu_total not in (None, 0) else 0.0
+        except Exception:
+            gpu_total = 0.0
+        try:
+            gpu_used = float(gpu_used) if gpu_used is not None else 0.0
+        except Exception:
+            gpu_used = 0.0
+        if gpu_total > 0:
+            gpu_pct = (gpu_used / gpu_total) * 100 if gpu_total else 0
             print(
-                f"GPU Memory: {baseline['gpu_used_mb']:.1f} / "
-                f"{baseline['gpu_total_mb']:.1f} MB ({gpu_pct:.1f}% used)"
+                f"GPU Memory: {gpu_used:.1f} / "
+                f"{gpu_total:.1f} MB ({gpu_pct:.1f}% used)"
             )
+        else:
+            print("GPU Memory: N/A")
         return baseline
 
     async def run_scaling_test(
@@ -374,9 +388,14 @@ class MemoryBenchmarkRunner:
 
             # Create extensions
             extensions = []
+            extension_venv_root = getattr(self.test_base, "test_root", None)
+            if extension_venv_root is not None:
+                extension_venv_root = extension_venv_root / "extension-venvs"
+            else:
+                extension_venv_root = "extension-venvs"
             manager = ExtensionManager(
                 MemoryBenchmarkExtensionBase,
-                ExtensionManagerConfig(venv_root_path=str(self.test_base.test_root / "extension-venvs")),
+                ExtensionManagerConfig(venv_root_path=str(extension_venv_root)),
             )
 
             # Clean up and reset baseline before measuring
@@ -410,7 +429,7 @@ class MemoryBenchmarkRunner:
 
                 config = ExtensionConfig(
                     name=ext_name,
-                    module_path=str(self.test_base.test_root / "extensions" / ext_name),
+                    module_path=str((self.test_base.test_root or Path(".")) / "extensions" / ext_name),
                     isolated=True,
                     dependencies=["torch>=2.0.0"] if TORCH_AVAILABLE else [],
                     apis=[],
@@ -498,8 +517,7 @@ class MemoryBenchmarkRunner:
                 "after_send_ram_mb": after_send_memory["total_ram_mb"],
                 "load_ram_delta_mb": after_load_memory["total_ram_mb"] - before_memory["total_ram_mb"],
                 "send_ram_delta_mb": after_send_memory["total_ram_mb"] - after_load_memory["total_ram_mb"],
-                "ram_per_extension_mb": (after_load_memory["total_ram_mb"] - before_memory["total_ram_mb"])
-                / num_extensions,
+                "ram_per_extension_mb": (float(after_load_memory["total_ram_mb"] or 0) - float(before_memory["total_ram_mb"] or 0)) / num_extensions if num_extensions else 0,
                 "before_vram_mb": before_memory["total_vram_mb"],
                 "after_load_vram_mb": after_load_memory["total_vram_mb"],
                 "after_send_vram_mb": after_send_memory["total_vram_mb"],
@@ -584,9 +602,14 @@ class MemoryBenchmarkRunner:
 
                 # Create extensions
                 extensions = []
+                extension_venv_root = getattr(self.test_base, "test_root", None)
+                if extension_venv_root is not None:
+                    extension_venv_root = extension_venv_root / "extension-venvs"
+                else:
+                    extension_venv_root = "extension-venvs"
                 manager = ExtensionManager(
                     MemoryBenchmarkExtensionBase,
-                    ExtensionManagerConfig(venv_root_path=str(self.test_base.test_root / "extension-venvs")),
+                    ExtensionManagerConfig(venv_root_path=str(extension_venv_root)),
                 )
 
                 # Measure baseline
@@ -607,7 +630,7 @@ class MemoryBenchmarkRunner:
 
                     config = ExtensionConfig(
                         name=ext_name,
-                        module_path=str(self.test_base.test_root / "extensions" / ext_name),
+                        module_path=str((self.test_base.test_root or Path(".")) / "extensions" / ext_name),
                         isolated=True,
                         dependencies=["torch>=2.0.0"],
                         apis=[],
@@ -666,10 +689,7 @@ class MemoryBenchmarkRunner:
                     "tensor_device": str(large_tensor.device),
                     "ram_for_tensor_creation_mb": after_create["total_ram_mb"] - baseline["total_ram_mb"],
                     "ram_for_distribution_mb": after_send["total_ram_mb"] - after_create["total_ram_mb"],
-                    "ram_per_extension_copy_mb": (after_send["total_ram_mb"] - after_create["total_ram_mb"])
-                    / num_extensions
-                    if num_extensions > 0
-                    else 0,
+                    "ram_per_extension_copy_mb": (float(after_send["total_ram_mb"] or 0) - float(after_create["total_ram_mb"] or 0)) / num_extensions if num_extensions else 0,
                     "vram_for_tensor_creation_mb": after_create["total_vram_mb"] - baseline["total_vram_mb"],
                     "vram_for_distribution_mb": after_send["total_vram_mb"] - after_create["total_vram_mb"],
                     # Add GPU total memory tracking
@@ -779,12 +799,21 @@ def print_memory_benchmark_summary(results: dict):
         print("\nBaseline Memory Usage:")
         print(f"  RAM: {baseline['total_ram_mb']:.1f} MB")
         print(f"  VRAM: {baseline['total_vram_mb']:.1f} MB")
-        if baseline.get("gpu_total_mb", 0) > 0:
-            gpu_pct = (baseline["gpu_used_mb"] / baseline["gpu_total_mb"]) * 100
-            print(
-                f"  GPU Total: {baseline['gpu_used_mb']:.1f} / "
-                f"{baseline['gpu_total_mb']:.1f} MB ({gpu_pct:.1f}% used)"
-            )
+        gpu_total = baseline.get("gpu_total_mb", 0.0)
+        gpu_used = baseline.get("gpu_used_mb", 0.0)
+        try:
+            gpu_total = float(gpu_total) if gpu_total not in (None, 0) else 0.0
+        except Exception:
+            gpu_total = 0.0
+        try:
+            gpu_used = float(gpu_used) if gpu_used is not None else 0.0
+        except Exception:
+            gpu_used = 0.0
+        if gpu_total > 0:
+            gpu_pct = (gpu_used / gpu_total) * 100 if gpu_total else 0
+            print(f"  GPU Total: {gpu_used:.1f} / {gpu_total:.1f} MB ({gpu_pct:.1f}% used)")
+        else:
+            print(f"  GPU Total: N/A")
 
     # Scaling results
     for test_type in ["cpu_no_share", "cpu_share", "gpu_no_share", "gpu_share"]:
@@ -855,8 +884,7 @@ def print_memory_benchmark_summary(results: dict):
                     savings = no_share["ram_for_distribution_mb"] - share["ram_for_distribution_mb"]
                     savings_pct = (
                         (savings / no_share["ram_for_distribution_mb"] * 100)
-                        if no_share["ram_for_distribution_mb"] > 0
-                        else 0
+                        if no_share["ram_for_distribution_mb"] else 0
                     )
 
                     print("\nCPU Memory Sharing Analysis:")
@@ -901,15 +929,14 @@ def print_memory_benchmark_summary(results: dict):
                     ram_savings = no_share["ram_for_distribution_mb"] - share["ram_for_distribution_mb"]
                     ram_savings_pct = (
                         (ram_savings / no_share["ram_for_distribution_mb"] * 100)
-                        if no_share["ram_for_distribution_mb"] > 0
-                        else 0
+                        if no_share["ram_for_distribution_mb"] else 0
                     )
 
                     print("\nGPU Memory Sharing Analysis:")
                     print(f"  RAM saved with share_torch: {ram_savings:.1f} MB ({ram_savings_pct:.1f}%)")
 
                     gpu_savings = no_share["gpu_for_distribution_mb"] - share["gpu_for_distribution_mb"]
-                    if no_share["gpu_for_distribution_mb"] > 0:
+                    if no_share["gpu_for_distribution_mb"]:
                         gpu_savings_pct = gpu_savings / no_share["gpu_for_distribution_mb"] * 100
                         print(
                             f"  GPU memory saved with share_torch: {gpu_savings:.1f} MB "
@@ -951,6 +978,15 @@ Examples:
         help="Test both share_torch=True and share_torch=False (default: only share_torch=True)",
     )
 
+    parser.add_argument("--device", type=int, default=None, help="CUDA device index to use (if applicable)")
+    parser.add_argument("--no-gpu", action="store_true", help="Skip GPU benchmarks even if CUDA is available")
+    parser.add_argument(
+        "--backend",
+        choices=["auto", "cuda", "xpu"],
+        default="auto",
+        help="Device backend to use: auto (default), cuda (NVIDIA/AMD ROCm), or xpu (Intel oneAPI)",
+    )
+
     args = parser.parse_args()
 
     # Determine extension counts
@@ -982,6 +1018,83 @@ Examples:
         print("VRAM tracking will not be available.")
     else:
         print("NVML available for GPU memory tracking")
+
+    # Set device and backend
+    backend = args.backend
+    device_idx = args.device
+    device_str = "cpu"
+    device_name = "cpu"
+    backend_used = "cpu"
+    try:
+        import torch  # type: ignore
+        cuda_available = torch.cuda.is_available()
+        xpu_available = hasattr(torch, "xpu") and torch.xpu.is_available()
+        # Auto backend selection
+        if backend == "auto":
+            if cuda_available:
+                backend = "cuda"
+            elif xpu_available:
+                backend = "xpu"
+            else:
+                backend = "cpu"
+        if backend == "cuda" and cuda_available:
+            # Use getattr to avoid linter errors for torch.version.hip
+            torch_version = getattr(torch, 'version', None)
+            hip_version = getattr(torch_version, 'hip', None) if torch_version else None
+            if platform.system() == "Linux" and hip_version is not None:
+                print("[PyIsolate] ROCm (AMD) backend detected on Linux.")
+            elif platform.system() == "Windows":
+                print("[PyIsolate] ROCm is not supported on Windows. Falling back to CPU.")
+                backend = "cpu"
+            if backend == "cuda":
+                if device_idx is not None:
+                    torch.cuda.set_device(device_idx)
+                    device_str = f"cuda{device_idx}"
+                    device_name = torch.cuda.get_device_name(device_idx)
+                else:
+                    device_idx = torch.cuda.current_device()
+                    device_str = f"cuda{device_idx}"
+                    device_name = torch.cuda.get_device_name(device_idx)
+                backend_used = "cuda"
+                print(f"[PyIsolate] Using CUDA/ROCm device {device_idx}: {device_name}")
+        elif backend == "xpu" and xpu_available:
+            if device_idx is not None:
+                torch.xpu.set_device(device_idx)
+                device_str = f"xpu{device_idx}"
+                device_name = torch.xpu.get_device_name(device_idx) if hasattr(torch.xpu, "get_device_name") else "Intel XPU"
+            else:
+                device_idx = torch.xpu.current_device()
+                device_str = f"xpu{device_idx}"
+                device_name = torch.xpu.get_device_name(device_idx) if hasattr(torch.xpu, "get_device_name") else "Intel XPU"
+            backend_used = "xpu"
+            print(f"[PyIsolate] Using Intel XPU device {device_idx}: {device_name}")
+        else:
+            print("[PyIsolate] No supported GPU backend available, using CPU only.")
+    except Exception as e:
+        print(f"[PyIsolate] Error setting device/backend: {e}")
+
+    # Generate results filename with backend and device info
+    import socket, datetime
+    computer = socket.gethostname()
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    device_tag = f"{backend_used}{device_idx if device_idx is not None else 0}"
+    if device_str != "cpu":
+        safe_device_name = device_name.replace(" ", "").replace("/", "-")
+        device_tag = f"{backend_used}{device_idx if device_idx is not None else 0}-{safe_device_name}"
+    results_filename = f"memory_benchmark_results_{computer}_{device_tag}_{timestamp}.txt"
+    print(f"\n[PyIsolate] Results will be saved to: {results_filename}")
+
+    # For memory tracking, print backend-specific info
+    if backend_used == "cuda":
+        print("[PyIsolate] Using NVML for CUDA/ROCm memory tracking.")
+    elif backend_used == "xpu":
+        try:
+            import torch  # type: ignore
+            mem_alloc = torch.xpu.memory_allocated() if hasattr(torch, "xpu") else 0
+            print(f"[PyIsolate] Intel XPU memory allocated: {mem_alloc / 1024 / 1024:.1f} MB")
+        except Exception as e:
+            print(f"[PyIsolate] Could not get Intel XPU memory info: {e}")
+    # For AMD ROCm, optionally try rocm-smi if available (not implemented here, but can be added with subprocess)
 
     # Determine what to test
     test_small = not args.large_only
