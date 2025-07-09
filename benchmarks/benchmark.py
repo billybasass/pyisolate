@@ -557,7 +557,7 @@ Examples:
         help="Device backend to use: auto (default), cuda (NVIDIA/AMD ROCm), or xpu (Intel oneAPI)",
     )
 
-    parser.add_argument("--device", type=int, default=None, help="CUDA device index to use (if applicable)")
+    parser.add_argument("--device", type=str, default=None, help="Device index (int) or 'cpu' to force CPU mode")
 
     args = parser.parse_args()
 
@@ -574,7 +574,21 @@ Examples:
 
     # Set device and backend
     backend = args.backend
-    device_idx = args.device
+    device_arg = args.device
+    if device_arg is not None and str(device_arg).lower() == "cpu":
+        backend = "cpu"
+        device_idx = None
+        print("[PyIsolate] Forcing CPU mode due to --device=cpu")
+        args.no_gpu = True
+    elif device_arg is not None:
+        try:
+            device_idx = int(device_arg)
+        except ValueError:
+            print(f"Invalid --device value: {device_arg}. Must be integer or 'cpu'.")
+            sys.exit(1)
+    else:
+        device_idx = None
+
     device_str = "cpu"
     device_name = "cpu"
     backend_used = "cpu"
