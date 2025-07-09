@@ -182,7 +182,10 @@ class MemoryTracker:
                 except psutil.NoSuchProcess:
                     pass
 
-            memory_info["total_ram_mb"] = (memory_info["host_ram_mb"] or 0) + (memory_info["children_ram_mb"] or 0)
+            memory_info["total_ram_mb"] = (
+                (memory_info["host_ram_mb"] or 0)
+                + (memory_info["children_ram_mb"] or 0)
+            )
 
         except Exception as e:
             print(f"Error getting RAM usage: {e}")
@@ -333,7 +336,10 @@ class MemoryBenchmarkRunner:
     def __init__(self, test_base: IntegrationTestBase):
         self.test_base = test_base
         if self.test_base.test_root is None:
-            raise RuntimeError("test_root is not set on test_base. Did you await setup_test_environment() successfully?")
+            raise RuntimeError(
+                "test_root is not set on test_base. "
+                "Did you await setup_test_environment() successfully?"
+            )
         self.memory_tracker = MemoryTracker()
         self.results = []
 
@@ -517,7 +523,10 @@ class MemoryBenchmarkRunner:
                 "after_send_ram_mb": after_send_memory["total_ram_mb"],
                 "load_ram_delta_mb": after_load_memory["total_ram_mb"] - before_memory["total_ram_mb"],
                 "send_ram_delta_mb": after_send_memory["total_ram_mb"] - after_load_memory["total_ram_mb"],
-                "ram_per_extension_mb": (float(after_load_memory["total_ram_mb"] or 0) - float(before_memory["total_ram_mb"] or 0)) / num_extensions if num_extensions else 0,
+                "ram_per_extension_mb": (
+                    float(after_load_memory["total_ram_mb"] or 0)
+                    - float(before_memory["total_ram_mb"] or 0)
+                ) / num_extensions if num_extensions else 0,
                 "before_vram_mb": before_memory["total_vram_mb"],
                 "after_load_vram_mb": after_load_memory["total_vram_mb"],
                 "after_send_vram_mb": after_send_memory["total_vram_mb"],
@@ -687,19 +696,38 @@ class MemoryBenchmarkRunner:
                     "after_send_vram_mb": after_send["total_vram_mb"],
                     "tensor_size_mb": actual_size_mb,
                     "tensor_device": str(large_tensor.device),
-                    "ram_for_tensor_creation_mb": after_create["total_ram_mb"] - baseline["total_ram_mb"],
-                    "ram_for_distribution_mb": after_send["total_ram_mb"] - after_create["total_ram_mb"],
-                    "ram_per_extension_copy_mb": (float(after_send["total_ram_mb"] or 0) - float(after_create["total_ram_mb"] or 0)) / num_extensions if num_extensions else 0,
-                    "vram_for_tensor_creation_mb": after_create["total_vram_mb"] - baseline["total_vram_mb"],
-                    "vram_for_distribution_mb": after_send["total_vram_mb"] - after_create["total_vram_mb"],
+                    "ram_for_tensor_creation_mb": (
+                        float(after_create["total_ram_mb"] or 0)
+                        - float(baseline["total_ram_mb"] or 0)
+                    ) / num_extensions if num_extensions else 0,
+                    "ram_for_distribution_mb": (
+                        float(after_send["total_ram_mb"] or 0)
+                        - float(after_create["total_ram_mb"] or 0)
+                    ) / num_extensions if num_extensions else 0,
+                    "ram_per_extension_copy_mb": (
+                        float(after_send["total_ram_mb"] or 0)
+                        - float(after_create["total_ram_mb"] or 0)
+                    ) / num_extensions if num_extensions else 0,
+                    "vram_for_tensor_creation_mb": (
+                        float(after_create["total_vram_mb"] or 0)
+                        - float(baseline["total_vram_mb"] or 0)
+                    ) / num_extensions if num_extensions else 0,
+                    "vram_for_distribution_mb": (
+                        float(after_send["total_vram_mb"] or 0)
+                        - float(after_create["total_vram_mb"] or 0)
+                    ) / num_extensions if num_extensions else 0,
                     # Add GPU total memory tracking
                     "baseline_gpu_mb": baseline.get("gpu_used_mb", 0),
                     "after_create_gpu_mb": after_create.get("gpu_used_mb", 0),
                     "after_send_gpu_mb": after_send.get("gpu_used_mb", 0),
-                    "gpu_for_tensor_creation_mb": after_create.get("gpu_used_mb", 0)
-                    - baseline.get("gpu_used_mb", 0),
-                    "gpu_for_distribution_mb": after_send.get("gpu_used_mb", 0)
-                    - after_create.get("gpu_used_mb", 0),
+                    "gpu_for_tensor_creation_mb": (
+                        float(after_create.get("gpu_used_mb", 0) or 0)
+                        - float(baseline.get("gpu_used_mb", 0) or 0)
+                    ) / num_extensions if num_extensions else 0,
+                    "gpu_for_distribution_mb": (
+                        float(after_send.get("gpu_used_mb", 0) or 0)
+                        - float(after_create.get("gpu_used_mb", 0) or 0)
+                    ) / num_extensions if num_extensions else 0,
                     "send_time_s": send_time,
                 }
 
@@ -813,7 +841,7 @@ def print_memory_benchmark_summary(results: dict):
             gpu_pct = (gpu_used / gpu_total) * 100 if gpu_total else 0
             print(f"  GPU Total: {gpu_used:.1f} / {gpu_total:.1f} MB ({gpu_pct:.1f}% used)")
         else:
-            print(f"  GPU Total: N/A")
+            print("  GPU Total: N/A")
 
     # Scaling results
     for test_type in ["cpu_no_share", "cpu_share", "gpu_no_share", "gpu_share"]:
@@ -978,7 +1006,12 @@ Examples:
         help="Test both share_torch=True and share_torch=False (default: only share_torch=True)",
     )
 
-    parser.add_argument("--device", type=str, default=None, help="Device index (int) or 'cpu' to force CPU mode")
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        help="Device index (int) or 'cpu' to force CPU mode",
+    )
     parser.add_argument("--no-gpu", action="store_true", help="Skip GPU benchmarks even if CUDA is available")
     parser.add_argument(
         "--backend",
@@ -1078,11 +1111,19 @@ Examples:
             if device_idx is not None:
                 torch.xpu.set_device(device_idx)
                 device_str = f"xpu{device_idx}"
-                device_name = torch.xpu.get_device_name(device_idx) if hasattr(torch.xpu, "get_device_name") else "Intel XPU"
+                device_name = (
+                    torch.xpu.get_device_name(device_idx)
+                    if hasattr(torch.xpu, "get_device_name")
+                    else "Intel XPU"
+                )
             else:
                 device_idx = torch.xpu.current_device()
                 device_str = f"xpu{device_idx}"
-                device_name = torch.xpu.get_device_name(device_idx) if hasattr(torch.xpu, "get_device_name") else "Intel XPU"
+                device_name = (
+                    torch.xpu.get_device_name(device_idx)
+                    if hasattr(torch.xpu, "get_device_name")
+                    else "Intel XPU"
+                )
             backend_used = "xpu"
             print(f"[PyIsolate] Using Intel XPU device {device_idx}: {device_name}")
         else:
@@ -1091,7 +1132,8 @@ Examples:
         print(f"[PyIsolate] Error setting device/backend: {e}")
 
     # Generate results filename with backend and device info
-    import socket, datetime
+    import datetime
+    import socket
     computer = socket.gethostname()
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     device_tag = f"{backend_used}{device_idx if device_idx is not None else 0}"
@@ -1111,7 +1153,8 @@ Examples:
             print(f"[PyIsolate] Intel XPU memory allocated: {mem_alloc / 1024 / 1024:.1f} MB")
         except Exception as e:
             print(f"[PyIsolate] Could not get Intel XPU memory info: {e}")
-    # For AMD ROCm, optionally try rocm-smi if available (not implemented here, but can be added with subprocess)
+    # For AMD ROCm, optionally try rocm-smi if available (not implemented here,
+    # but can be added with subprocess)
 
     # Determine what to test
     test_small = not args.large_only

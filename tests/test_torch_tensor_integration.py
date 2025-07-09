@@ -35,7 +35,11 @@ try:
         torch.cuda.set_device(int(cuda_env))
         print(f"[PyIsolate] Using CUDA device {cuda_env}: {torch.cuda.get_device_name(int(cuda_env))}")
     elif HAS_CUDA:
-        print(f"[PyIsolate] Using default CUDA device {torch.cuda.current_device()}: {torch.cuda.get_device_name(torch.cuda.current_device())}")
+        print(
+            f"[PyIsolate] Using default CUDA device "
+            f"{torch.cuda.current_device()}: "
+            f"{torch.cuda.get_device_name(torch.cuda.current_device())}"
+        )
     else:
         print("[PyIsolate] CUDA not available, using CPU only.")
 except ImportError:

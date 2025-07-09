@@ -27,9 +27,9 @@ else:
 
     typehint_mp = multiprocessing
 
-import torch
-from torch.utils import dlpack as _dlpack
 import numpy as np
+import torch
+from torch.utils import dlpack as _dlpack  # type: ignore[attr-defined]
 
 # Utility: Convert XPU tensor to DLPack capsule if needed
 
@@ -41,7 +41,7 @@ def maybe_to_dlpack(obj):
             if not arr.flags.writeable:
                 arr = arr.copy()
             return torch.from_numpy(arr).to('xpu')
-        return torch.utils.dlpack.to_dlpack(obj)  # type: ignore[attr-defined]
+        return _dlpack.to_dlpack(obj)  # type: ignore[attr-defined]
     return obj
 
 # Utility: Convert DLPack capsule to XPU tensor if needed
@@ -49,18 +49,17 @@ def maybe_to_dlpack(obj):
 def maybe_from_dlpack(obj):
     # DLPack capsules are PyCapsule, not torch.Tensor
     if not isinstance(obj, torch.Tensor) and hasattr(obj, '__dlpack__'):
-        return torch.utils.dlpack.from_dlpack(obj)  # type: ignore[attr-defined]
+        return _dlpack.from_dlpack(obj)  # type: ignore[attr-defined]
     # For raw PyCapsule (older PyTorch), try fallback
     if type(obj).__name__ == 'PyCapsule':
-        return torch.utils.dlpack.from_dlpack(obj)  # type: ignore[attr-defined]
+        return _dlpack.from_dlpack(obj)  # type: ignore[attr-defined]
     return obj
 
 def maybe_serialize_tensor(obj):
-    if isinstance(obj, torch.Tensor) and hasattr(obj, 'device'):
-        if obj.device.type == 'xpu':
-            # Fallback: send as CPU buffer + metadata
-            arr = obj.cpu().numpy()
-            return ('xpu_tensor', arr.tobytes(), arr.shape, str(arr.dtype))
+    if isinstance(obj, torch.Tensor) and hasattr(obj, 'device') and obj.device.type == 'xpu':
+        # Fallback: send as CPU buffer + metadata
+        arr = obj.cpu().numpy()
+        return ('xpu_tensor', arr.tobytes(), arr.shape, str(arr.dtype))
     return obj
 
 def maybe_deserialize_tensor(obj):
@@ -493,7 +492,7 @@ class AsyncRPC:
                 if "result" in response:
                     response_mod = dict(response)
                     response_mod["result"] = maybe_serialize_tensor(response["result"])
-                    self.send_queue.put(response_mod)  # type: ignore
+                    self.send_queue.put(cast(RPCResponse, response_mod))
                 else:
                     self.send_queue.put(response)
 

@@ -13,9 +13,9 @@ Options:
 
 import argparse
 import asyncio
+import platform
 import sys
 from pathlib import Path
-import platform
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -557,7 +557,12 @@ Examples:
         help="Device backend to use: auto (default), cuda (NVIDIA/AMD ROCm), or xpu (Intel oneAPI)",
     )
 
-    parser.add_argument("--device", type=str, default=None, help="Device index (int) or 'cpu' to force CPU mode")
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        help="Device index (int) or 'cpu' to force CPU mode",
+    )
 
     args = parser.parse_args()
 
@@ -628,11 +633,19 @@ Examples:
             if device_idx is not None:
                 torch.xpu.set_device(device_idx)
                 device_str = f"xpu{device_idx}"
-                device_name = torch.xpu.get_device_name(device_idx) if hasattr(torch.xpu, "get_device_name") else "Intel XPU"
+                device_name = (
+                    torch.xpu.get_device_name(device_idx)
+                    if hasattr(torch.xpu, "get_device_name")
+                    else "Intel XPU"
+                )
             else:
                 device_idx = torch.xpu.current_device()
                 device_str = f"xpu{device_idx}"
-                device_name = torch.xpu.get_device_name(device_idx) if hasattr(torch.xpu, "get_device_name") else "Intel XPU"
+                device_name = (
+                    torch.xpu.get_device_name(device_idx)
+                    if hasattr(torch.xpu, "get_device_name")
+                    else "Intel XPU"
+                )
             backend_used = "xpu"
             print(f"[PyIsolate] Using Intel XPU device {device_idx}: {device_name}")
         else:
@@ -641,7 +654,8 @@ Examples:
         print(f"[PyIsolate] Error setting device/backend: {e}")
 
     # Generate results filename with backend and device info
-    import socket, datetime
+    import datetime
+    import socket
     computer = socket.gethostname()
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     device_tag = f"{backend_used}{device_idx if device_idx is not None else 0}"
