@@ -203,6 +203,7 @@ class BenchmarkRunner:
 @pytest.mark.asyncio
 class TestRPCBenchmarks(IntegrationTestBase):
     """Benchmark tests for RPC call overhead."""
+
     benchmark_ext_shared: Optional[object] = None
     runner: Optional[BenchmarkRunner] = None
 
