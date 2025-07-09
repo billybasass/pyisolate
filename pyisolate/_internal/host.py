@@ -349,7 +349,9 @@ class Extension(Generic[T]):
         if not use_xpu_backend and "intel" in str(self.config.get("device_name", "")).lower():
             use_xpu_backend = True
 
-        # Install the same version of torch as the current process
+        # Install the same version of torch as the current process, if needed
+        torch_requirement = None
+        torch_index_args = []
         if self.config["share_torch"]:
             import torch
 
@@ -359,16 +361,16 @@ class Extension(Generic[T]):
                 torch_version = torch_version.split("+")[0]
             cuda_version = getattr(torch.version, "cuda", None)  # type: ignore
             if use_xpu_backend:
-                uv_common_args += ["--index-url", "https://download.pytorch.org/whl/xpu"]
-                uv_args.append("torch>=2.7.0")
+                torch_requirement = "torch>=2.7.0"
+                torch_index_args = ["--index-url", "https://download.pytorch.org/whl/xpu"]
             elif cuda_version:
-                uv_common_args += [
+                torch_requirement = f"torch=={torch_version}"
+                torch_index_args = [
                     "--extra-index-url",
                     f"https://download.pytorch.org/whl/cu{cuda_version.replace('.', '')}",
                 ]
-                uv_args.append(f"torch=={torch_version}")
             else:
-                uv_args.append(f"torch=={torch_version}")
+                torch_requirement = f"torch=={torch_version}"
 
         # Install extension dependencies from config
         if self.config["dependencies"] or self.config["share_torch"]:
@@ -376,12 +378,20 @@ class Extension(Generic[T]):
 
             # Re-validate dependencies before passing to subprocess (defense in depth)
             safe_dependencies = []
+            torch_in_deps = False
             for dep in self.config["dependencies"]:
                 validate_dependency(dep)
                 # Remove any '+xpu' or '+cpu' from torch dependencies for Intel/XPU
                 if use_xpu_backend and dep.startswith("torch"):
                     dep = "torch>=2.7.0"
+                if dep.startswith("torch"):
+                    torch_in_deps = True
                 safe_dependencies.append(dep)
+
+            # Only add torch requirement if not already present
+            if torch_requirement and not torch_in_deps:
+                safe_dependencies.insert(0, torch_requirement)
+                uv_args += torch_index_args
 
             # In normal mode, suppress output unless there are actual changes
             always_output = logger.isEnabledFor(logging.DEBUG)
