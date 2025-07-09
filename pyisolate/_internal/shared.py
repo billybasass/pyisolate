@@ -35,6 +35,12 @@ import numpy as np
 
 def maybe_to_dlpack(obj):
     if isinstance(obj, torch.Tensor) and hasattr(obj, 'device') and obj.device.type == 'xpu':
+        # If the input is a NumPy array and not writable, make it writable before converting
+        if hasattr(obj, 'numpy'):
+            arr = obj.numpy()
+            if not arr.flags.writeable:
+                arr = arr.copy()
+            return torch.from_numpy(arr).to('xpu')
         return torch.utils.dlpack.to_dlpack(obj)  # type: ignore[attr-defined]
     return obj
 
