@@ -546,7 +546,7 @@ Examples:
     parser.add_argument(
         "--torch-mode",
         choices=["both", "standard", "shared"],
-        default="both",
+        default="shared",
         help="Which torch mode to test: both, standard (no share_torch), or shared (share_torch only)",
     )
 
