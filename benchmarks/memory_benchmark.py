@@ -790,54 +790,36 @@ async def run_memory_benchmarks(
         available_backends = detect_available_backends() if backend == "auto" else [backend]
 
         if test_small_tensor:
-            # Small tensor tests with multiple extension counts
             print("\n" + "=" * 80)
             print("SMALL TENSOR SCALING TESTS")
             print("=" * 80)
 
-            # CPU tensor tests
             small_tensor_size = (512, 512)  # ~1MB tensor
 
-            if test_both_modes:
-                # Test both modes
-                print("\n--- CPU Tensor Tests (share_torch=False) ---")
-                cpu_results_no_share = await runner.run_scaling_test(
-                    extension_counts, share_torch=False, test_tensor_size=small_tensor_size, device="cpu"
-                )
-                all_results["cpu_no_share"] = cpu_results_no_share
-
-            print("\n--- CPU Tensor Tests (share_torch=True) ---")
-            cpu_results_share = await runner.run_scaling_test(
-                extension_counts, share_torch=True, test_tensor_size=small_tensor_size, device="cpu"
-            )
-            all_results["cpu_share"] = cpu_results_share
-
-            # GPU tensor tests if available
-            if CUDA_AVAILABLE:
+            for backend_used in available_backends:
                 if test_both_modes:
-                    print("\n--- GPU Tensor Tests (share_torch=False) ---")
-                    gpu_results_no_share = await runner.run_scaling_test(
-                        extension_counts, share_torch=False, test_tensor_size=small_tensor_size, device="cuda"
+                    print(f"\n--- {backend_used.upper()} Tensor Tests (share_torch=False) ---")
+                    results_no_share = await runner.run_scaling_test(
+                        extension_counts, share_torch=False, test_tensor_size=small_tensor_size, device=backend_used
                     )
-                    all_results["gpu_no_share"] = gpu_results_no_share
+                    all_results[f"{backend_used}_no_share"] = results_no_share
 
-                print("\n--- GPU Tensor Tests (share_torch=True) ---")
-                gpu_results_share = await runner.run_scaling_test(
-                    extension_counts, share_torch=True, test_tensor_size=small_tensor_size, device="cuda"
+                print(f"\n--- {backend_used.upper()} Tensor Tests (share_torch=True) ---")
+                results_share = await runner.run_scaling_test(
+                    extension_counts, share_torch=True, test_tensor_size=small_tensor_size, device=backend_used
                 )
-                all_results["gpu_share"] = gpu_results_share
+                all_results[f"{backend_used}_share"] = results_share
 
         if test_large_tensor:
-            # Large tensor sharing test
-            large_results = await runner.run_large_tensor_sharing_test(
-                num_extensions=min(max_extensions_for_large, max(extension_counts)),
-                tensor_gb=2.0,
-                test_both_modes=test_both_modes,
-                device="cpu",
-            )
-            all_results["large_tensor_sharing"] = large_results
+            for backend_used in available_backends:
+                large_results = await runner.run_large_tensor_sharing_test(
+                    num_extensions=min(max_extensions_for_large, max(extension_counts)),
+                    tensor_gb=2.0,
+                    test_both_modes=test_both_modes,
+                    device=backend_used,
+                )
+                all_results[f"{backend_used}_large"] = large_results
 
-        # Print final summary
         print_memory_benchmark_summary(all_results)
 
     finally:
