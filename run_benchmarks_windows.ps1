@@ -253,6 +253,9 @@ Write-Host "Step 8: Running memory benchmarks..."
 "================================================================" | Add-Content "..\$OutputFile"
 "" | Add-Content "..\$OutputFile"
 
+# Before running the memory benchmark, always set backend_arg to --backend auto
+$memory_backend_arg = @("--backend", "auto")
+
 Write-Host "Running memory_benchmark.py (this may take several minutes)..."
 Write-Host "NOTE: This test intentionally pushes VRAM limits to find maximum capacity"
 
@@ -261,7 +264,7 @@ Write-Host "NOTE: If nothing has changed after 90 minutes, press Ctrl+C" -Foregr
 Write-Host "The test intentionally pushes VRAM limits and may appear frozen when it hits limits."
 
 # Run memory benchmark
-$output = & python memory_benchmark.py --counts 1,2,5,10,25,50,100 @device_args @backend_arg 2>&1 | Out-String
+$output = & python memory_benchmark.py --counts 1,2,5,10,25,50,100 @device_args @memory_backend_arg 2>&1 | Out-String
 $memoryResult = $LASTEXITCODE
 $output | Tee-Object -Append "..\$OutputFile"
 

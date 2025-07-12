@@ -787,7 +787,16 @@ async def run_memory_benchmarks(
         baseline = await runner.run_baseline_memory_test()
         all_results["baseline"] = baseline
 
-        available_backends = detect_available_backends() if backend == "auto" else [backend]
+        if backend == "auto":
+            available_backends = detect_available_backends()
+            if "cpu" not in available_backends:
+                available_backends = ["cpu"] + available_backends
+            else:
+                # Ensure cpu is first
+                available_backends = [b for b in ["cpu"] + available_backends if b != "cpu"]
+                available_backends = ["cpu"] + available_backends
+        else:
+            available_backends = [backend]
 
         if test_small_tensor:
             print("\n" + "=" * 80)
