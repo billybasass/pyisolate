@@ -24,11 +24,20 @@ sys.path.insert(0, str(project_root))
 # Import after path setup
 from tests.test_benchmarks import TestRPCBenchmarks  # noqa: E402
 
+# Try to import tabulate globally
+try:
+    from tabulate import tabulate
+    TABULATE_AVAILABLE = True
+except ImportError:
+    TABULATE_AVAILABLE = False
+    def tabulate(*args, **kwargs):
+        return "[tabulate not available]"
+
 # pyright: reportMissingImports=false
 
 
 async def run_benchmarks(
-    quick: bool = False, no_torch: bool = False, no_gpu: bool = False, torch_mode: str = "both"
+    quick: bool = False, no_torch: bool = False, no_gpu: bool = False, torch_mode: str = "both",
 ):
     """Run all benchmarks with the specified options."""
 
@@ -58,10 +67,26 @@ import asyncio
 import numpy as np
 from shared import ExampleExtension, DatabaseSingleton
 from pyisolate import local_execution
-
+from pyisolate._internal.gpu_utils import (
+    maybe_serialize_tensor,
+    maybe_deserialize_tensor,
+    maybe_to_dlpack,
+    maybe_from_dlpack,
+)
+import os
 try:
     import torch
     TORCH_AVAILABLE = True
+    # Set CUDA or XPU device if specified in environment
+    device_idx = os.environ.get("PYISOLATE_CUDA_DEVICE")
+    if device_idx is not None:
+        try:
+            if hasattr(torch, "xpu") and torch.xpu.is_available():
+                torch.xpu.set_device(int(device_idx))
+            elif torch.cuda.is_available():
+                torch.cuda.set_device(int(device_idx))
+        except Exception as e:
+            print(f"[Extension] Failed to set device: {e}")
 except ImportError:
     TORCH_AVAILABLE = False
 
@@ -167,8 +192,20 @@ def example_entrypoint():
         except ImportError:
             torch_available = False
 
+        # Get device index from sys.argv or environment
+        import os
+        device_idx_env = os.environ.get("PYISOLATE_CUDA_DEVICE")
+        if device_idx_env is not None:
+            try:
+                device_idx = int(device_idx_env)
+            except Exception:
+                device_idx = None
+
         # Create extensions based on torch_mode parameter
         extensions_to_create = []
+        extension_env = os.environ.copy()
+        if device_idx is not None:
+            extension_env["PYISOLATE_CUDA_DEVICE"] = str(device_idx)
 
         if torch_mode in ["both", "standard"]:
             # Create extension WITHOUT share_torch (standard serialization)
@@ -459,37 +496,46 @@ def example_entrypoint():
 
         # Print successful results
         if results:
-            from tabulate import tabulate
+            if TABULATE_AVAILABLE:
+                print("\nSuccessful Benchmarks:")
+                headers = ["Test", "Mean (ms)", "Std Dev (ms)", "Min (ms)", "Max (ms)"]
+                table_data = []
 
-            print("\nSuccessful Benchmarks:")
-            headers = ["Test", "Mean (ms)", "Std Dev (ms)", "Min (ms)", "Max (ms)"]
-            table_data = []
+                for result in results.values():
+                    table_data.append(
+                        [
+                            f"{result.mean * 1000:.2f}",
+                            f"{result.stdev * 1000:.2f}",
+                            f"{result.min_time * 1000:.2f}",
+                            f"{result.max_time * 1000:.2f}",
+                        ]
+                    )
 
-            for name, result in results.items():
-                table_data.append(
-                    [
-                        name,
-                        f"{result.mean * 1000:.2f}",
-                        f"{result.stdev * 1000:.2f}",
-                        f"{result.min_time * 1000:.2f}",
-                        f"{result.max_time * 1000:.2f}",
-                    ]
-                )
+                print(tabulate(table_data, headers=headers, tablefmt="grid"))
 
-            print(tabulate(table_data, headers=headers, tablefmt="grid"))
-
-            # Show fastest result for reference
-            baseline = min(r.mean for r in results.values())
-            print(f"\nFastest result: {baseline * 1000:.2f}ms")
-        else:
-            print("\nNo successful benchmark results!")
+                # Show fastest result for reference
+                baseline = min(r.mean for r in results.values())
+                print(f"\nFastest result: {baseline * 1000:.2f}ms")
+            else:
+                print("\nSuccessful Benchmarks:")
+                for result in results.values():
+                    print(
+                        f"    {result.name}: Mean={result.mean_time * 1000:.2f}ms, "
+                        f"Std={result.stdev * 1000:.2f}ms, Min={result.min_time * 1000:.2f}ms, "
+                        f"Max={result.max_time * 1000:.2f}ms"
+                    )
 
         # Print failed tests
         if failed_tests:
             print("\nFailed Tests:")
             failed_headers = ["Test", "Error"]
             failed_data = [[name, error] for name, error in failed_tests.items()]
-            print(tabulate(failed_data, headers=failed_headers, tablefmt="grid"))
+            if TABULATE_AVAILABLE:
+                print(tabulate(failed_data, headers=failed_headers, tablefmt="grid"))
+            elif failed_data:
+                print("[tabulate not available] Failed tests:")
+                for row in failed_data:
+                    print(row)
 
         # Print skipped tests
         if skipped_tests:
@@ -570,7 +616,7 @@ Examples:
     try:
         import numpy  # noqa: F401
         import psutil  # noqa: F401
-        import tabulate  # noqa: F401
+        # import tabulate  # noqa: F401 # This line is now handled globally
     except ImportError as e:
         print(f"Missing required dependency: {e}")
         print("Please install benchmark dependencies with:")
@@ -665,11 +711,16 @@ Examples:
     results_filename = f"benchmark_results_{computer}_{device_tag}_{timestamp}.txt"
     print(f"\n[PyIsolate] Results will be saved to: {results_filename}")
 
+    # In main(), after parsing args and determining device_idx:
+    if device_idx is not None:
+        import os
+        os.environ["PYISOLATE_CUDA_DEVICE"] = str(device_idx)
+
     # Run benchmarks
     try:
         return asyncio.run(
             run_benchmarks(
-                quick=args.quick, no_torch=args.no_torch, no_gpu=args.no_gpu, torch_mode=args.torch_mode
+                quick=args.quick, no_torch=args.no_torch, no_gpu=args.no_gpu, torch_mode=args.torch_mode,
             )
         )
     except KeyboardInterrupt:

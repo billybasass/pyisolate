@@ -26,6 +26,7 @@ Write-Host ""
 # Prompt for CUDA device index
 $device = Read-Host "Enter CUDA device index to use (leave blank for default GPU/CPU)"
 if ($device -ne "") {
+    # Always pass --device <index> to both benchmark.py and memory_benchmark.py
     $device_args = @("--device", "$device")
 } else {
     $device_args = @()

@@ -309,7 +309,9 @@ class Extension(Generic[T]):
                 raise RuntimeError("uv command not found in PATH")
 
             # Use the resolved, validated path
-            subprocess.check_call([uv_path, "venv", str(self.venv_path), "--python", "python3.12"])  # noqa: S603
+            import sys
+            py_version = f"python{sys.version_info.major}.{sys.version_info.minor}"
+            subprocess.check_call([uv_path, "venv", str(self.venv_path), "--python", py_version])  # noqa: S603
 
     # TODO(Optimization): Only do this when we update a extension to reduce startup time?
     def _install_dependencies(self):

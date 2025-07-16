@@ -51,6 +51,7 @@ from tabulate import tabulate
 from pyisolate import ExtensionConfig, ExtensionManager, ExtensionManagerConfig
 from tests.test_integration import IntegrationTestBase
 
+
 # 1. Device detection helpers (add after imports)
 def detect_available_backends():
     import torch
@@ -475,10 +476,7 @@ class MemoryBenchmarkRunner:
             # Create test tensor
             print(f"Creating test tensor {test_tensor_size} on {device}...")
             with torch.inference_mode():
-                if device == "cuda":
-                    test_tensor = torch.randn(*test_tensor_size, device="cuda")
-                    torch.cuda.synchronize()
-                elif device == "rocm":
+                if device == "cuda" or device == "rocm":
                     test_tensor = torch.randn(*test_tensor_size, device="cuda")
                     torch.cuda.synchronize()
                 elif device == "xpu":
@@ -608,12 +606,19 @@ class MemoryBenchmarkRunner:
         return results
 
     async def run_large_tensor_sharing_test(
-        self, num_extensions: int = 50, tensor_gb: float = 2.0, test_both_modes: bool = False, device: str = "cpu"
+        self,
+        num_extensions: int = 50,
+        tensor_gb: float = 2.0,
+        test_both_modes: bool = False,
+        device: str = "cpu",
     ) -> dict:
         """Test memory sharing with a large tensor across multiple extensions."""
         import torch
         print(f"\n{'=' * 60}")
-        print(f"Large Tensor Sharing Test ({tensor_gb}GB tensor, {num_extensions} extensions, device={device})")
+        print(
+            f"Large Tensor Sharing Test ({tensor_gb}GB tensor, "
+            f"{num_extensions} extensions, device={device})"
+        )
         print("=" * 60)
 
         extension_code = await create_memory_benchmark_extension()
@@ -677,10 +682,7 @@ class MemoryBenchmarkRunner:
 
             print(f"Creating {tensor_gb}GB tensor ({side}x{side}) on {device_name}...")
             with torch.inference_mode():
-                if device == "cuda":
-                    large_tensor = torch.randn(side, side, device="cuda")
-                    torch.cuda.synchronize()
-                elif device == "rocm":
+                if device == "cuda" or device == "rocm":
                     large_tensor = torch.randn(side, side, device="cuda")
                     torch.cuda.synchronize()
                 elif device == "xpu":
@@ -775,7 +777,6 @@ async def run_memory_benchmarks(
     backend: str = "auto",
 ):
     """Run the full memory benchmark suite."""
-    import torch
     test_base = IntegrationTestBase()
     await test_base.setup_test_environment("memory_benchmark")
 
@@ -809,13 +810,19 @@ async def run_memory_benchmarks(
                 if test_both_modes:
                     print(f"\n--- {backend_used.upper()} Tensor Tests (share_torch=False) ---")
                     results_no_share = await runner.run_scaling_test(
-                        extension_counts, share_torch=False, test_tensor_size=small_tensor_size, device=backend_used
+                        extension_counts,
+                        share_torch=False,
+                        test_tensor_size=small_tensor_size,
+                        device=backend_used,
                     )
                     all_results[f"{backend_used}_no_share"] = results_no_share
 
                 print(f"\n--- {backend_used.upper()} Tensor Tests (share_torch=True) ---")
                 results_share = await runner.run_scaling_test(
-                    extension_counts, share_torch=True, test_tensor_size=small_tensor_size, device=backend_used
+                    extension_counts,
+                    share_torch=True,
+                    test_tensor_size=small_tensor_size,
+                    device=backend_used,
                 )
                 all_results[f"{backend_used}_share"] = results_share
 
@@ -864,7 +871,7 @@ def print_memory_benchmark_summary(results: dict):
             print("  GPU Total: N/A")
 
     # Dynamically print all *_share and *_no_share results
-    share_types = [k for k in results if k.endswith("_share") or k.endswith("_no_share")]
+    share_types = [k for k in results if k.endswith(("_share", "_no_share"))]
     for test_type in share_types:
         if test_type in results:
             backend = test_type.replace("_share", "").replace("_no_share", "").upper()
@@ -879,7 +886,11 @@ def print_memory_benchmark_summary(results: dict):
                     f"{result['ram_per_extension_mb']:.1f}",
                     f"{result['send_ram_delta_mb']:.1f}",
                     f"{gpu_memory:.1f}",
-                    "Yes" if result.get("shared_memory") else "No" if result.get("shared_memory") is False else "N/A",
+                    (
+                        "Yes"
+                        if result.get("shared_memory")
+                        else "No" if result.get("shared_memory") is False else "N/A"
+                    ),
                 ])
             if table_data:
                 print(tabulate(table_data, headers=headers, tablefmt="grid"))
@@ -962,7 +973,10 @@ Examples:
         "--backend",
         choices=["auto", "cuda", "xpu", "rocm", "cpu"],
         default="auto",
-        help="Device backend to use: auto (default), cuda (NVIDIA/AMD ROCm), xpu (Intel oneAPI), rocm (AMD ROCm), or cpu",
+        help=(
+            "Device backend to use: auto (default), cuda (NVIDIA/AMD ROCm), "
+            "xpu (Intel oneAPI), rocm (AMD ROCm), or cpu"
+        ),
     )
 
     parser.add_argument(
