@@ -192,20 +192,8 @@ def example_entrypoint():
         except ImportError:
             torch_available = False
 
-        # Get device index from sys.argv or environment
-        import os
-        device_idx_env = os.environ.get("PYISOLATE_CUDA_DEVICE")
-        if device_idx_env is not None:
-            try:
-                device_idx = int(device_idx_env)
-            except Exception:
-                device_idx = None
-
         # Create extensions based on torch_mode parameter
         extensions_to_create = []
-        extension_env = os.environ.copy()
-        if device_idx is not None:
-            extension_env["PYISOLATE_CUDA_DEVICE"] = str(device_idx)
 
         if torch_mode in ["both", "standard"]:
             # Create extension WITHOUT share_torch (standard serialization)
@@ -501,9 +489,10 @@ def example_entrypoint():
                 headers = ["Test", "Mean (ms)", "Std Dev (ms)", "Min (ms)", "Max (ms)"]
                 table_data = []
 
-                for result in results.values():
+                for name, result in results.items():
                     table_data.append(
                         [
+                            name,
                             f"{result.mean * 1000:.2f}",
                             f"{result.stdev * 1000:.2f}",
                             f"{result.min_time * 1000:.2f}",
@@ -518,9 +507,9 @@ def example_entrypoint():
                 print(f"\nFastest result: {baseline * 1000:.2f}ms")
             else:
                 print("\nSuccessful Benchmarks:")
-                for result in results.values():
+                for name, result in results.items():
                     print(
-                        f"    {result.name}: Mean={result.mean_time * 1000:.2f}ms, "
+                        f"    {name}: Mean={result.mean_time * 1000:.2f}ms, "
                         f"Std={result.stdev * 1000:.2f}ms, Min={result.min_time * 1000:.2f}ms, "
                         f"Max={result.max_time * 1000:.2f}ms"
                     )
