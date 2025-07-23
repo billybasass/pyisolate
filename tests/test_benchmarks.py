@@ -39,12 +39,15 @@ try:
             f"{torch.cuda.get_device_name(torch.cuda.current_device())}"
         )
     else:
-        print("[PyIsolate] CUDA not available, using CPU only.")
+        print("[PyIsolate] CUDA not available, exiting.")
+        import sys
+        sys.exit(1)
 except ImportError:
     TORCH_AVAILABLE = False
     CUDA_AVAILABLE = False
 
 from .test_integration import IntegrationTestBase
+from shared import ExampleExtensionBase  # Add this import for type annotations
 
 
 class BenchmarkResults:
@@ -204,7 +207,7 @@ class BenchmarkRunner:
 class TestRPCBenchmarks(IntegrationTestBase):
     """Benchmark tests for RPC call overhead."""
 
-    benchmark_ext_shared: Optional[object] = None
+    benchmark_ext_shared: Optional[ExampleExtensionBase] = None
     runner: Optional[BenchmarkRunner] = None
 
     @pytest.fixture(autouse=True)
@@ -250,7 +253,7 @@ class TestRPCBenchmarks(IntegrationTestBase):
         print("SMALL DATA BENCHMARKS")
         print("=" * 60)
 
-        assert self.runner is not None  # type: ignore
+        assert self.runner is not None
         # Integer benchmarks
         test_int = 42
         await self.runner.run_benchmark(
@@ -276,7 +279,7 @@ class TestRPCBenchmarks(IntegrationTestBase):
         print("LARGE DATA BENCHMARKS")
         print("=" * 60)
 
-        assert self.runner is not None  # type: ignore
+        assert self.runner is not None
         # Large numpy array (10MB)
         large_array = np.random.random((1024, 1024))  # ~8MB float64
 
@@ -309,7 +312,7 @@ class TestRPCBenchmarks(IntegrationTestBase):
         print("TORCH TENSOR BENCHMARKS")
         print("=" * 60)
 
-        assert self.runner is not None  # type: ignore
+        assert self.runner is not None
         # Small tensor (CPU)
         with torch.inference_mode():
             small_tensor_cpu = torch.randn(100, 100)  # ~40KB
@@ -357,7 +360,7 @@ class TestRPCBenchmarks(IntegrationTestBase):
         print("COMPLEX CALL PATTERN BENCHMARKS")
         print("=" * 60)
 
-        assert self.runner is not None  # type: ignore
+        assert self.runner is not None
         # Recursive calls through host singleton
         await self.runner.run_benchmark(
             "Recursive Host Calls (depth=3)", lambda: self.benchmark_ext.recursive_host_call(3)
@@ -373,12 +376,12 @@ class TestRPCBenchmarks(IntegrationTestBase):
         # Small delay to ensure this runs last
         await asyncio.sleep(0.1)
 
-        assert self.runner is not None  # type: ignore
+        assert self.runner is not None
         self.runner.print_summary()
 
         # Basic assertions to ensure benchmarks ran
         assert len(self.runner.results) > 0, "No benchmark results found"
-        assert self.runner is not None  # type: ignore
+        assert self.runner is not None
 
         # Verify we have both local and RPC results for comparison
         local_results = [r for r in self.runner.results if "local" in r.name.lower()]

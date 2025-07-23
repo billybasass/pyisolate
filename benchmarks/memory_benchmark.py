@@ -85,12 +85,12 @@ class MemoryTracker:
 
         if NVML_AVAILABLE and nvml:
             try:
-                nvml.nvmlInit()  # type: ignore[attr-defined]
+                nvml.nvmlInit()
                 self.nvml_initialized = True
                 # Get the first GPU
-                self.gpu_handle = nvml.nvmlDeviceGetHandleByIndex(0)  # type: ignore[attr-defined]
+                self.gpu_handle = nvml.nvmlDeviceGetHandleByIndex(0)
                 # Store baseline GPU memory usage
-                mem_info = nvml.nvmlDeviceGetMemoryInfo(self.gpu_handle) if nvml is not None else None  # type: ignore[attr-defined]
+                mem_info = nvml.nvmlDeviceGetMemoryInfo(self.gpu_handle) if nvml is not None else None
                 self.baseline_gpu_memory_mb = (mem_info.used / 1024 / 1024) if mem_info is not None else 0
                 print(
                     f"NVML initialized on {self.platform}. "
@@ -135,12 +135,12 @@ class MemoryTracker:
         """Fallback method to get GPU memory on Windows using nvidia-smi."""
         current_used = self._get_gpu_memory_nvidia_smi()
         if current_used is not None:
-            memory_info["gpu_used_mb"] = float(current_used)
-            memory_info["total_vram_mb"] = float(current_used)
+            memory_info["gpu_used_mb"] = current_used
+            memory_info["total_vram_mb"] = current_used
 
             # Calculate delta from baseline
-            vram_delta = float(current_used) - float(self.baseline_gpu_memory_mb)
-            memory_info["host_vram_mb"] = float(max(0.0, vram_delta))
+            vram_delta = current_used - self.baseline_gpu_memory_mb
+            memory_info["host_vram_mb"] = max(0.0, vram_delta)
 
             # Try to get total GPU memory
             try:
@@ -215,7 +215,7 @@ class MemoryTracker:
         if self.nvml_initialized and self.gpu_handle and nvml is not None:
             try:
                 # Get total GPU memory info
-                mem_info = nvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)  # type: ignore[attr-defined]
+                mem_info = nvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
                 current_used_mb = float(mem_info.used or 0) / 1024 / 1024 if mem_info else 0
                 memory_info["gpu_used_mb"] = current_used_mb
                 memory_info["gpu_total_mb"] = float(mem_info.total or 0) / 1024 / 1024 if mem_info else 0
@@ -260,7 +260,7 @@ class MemoryTracker:
         """Reset the baseline GPU memory measurement."""
         if self.nvml_initialized and self.gpu_handle and nvml is not None:
             try:
-                mem_info = nvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)  # type: ignore[attr-defined]
+                mem_info = nvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
                 old_baseline = self.baseline_gpu_memory_mb
                 self.baseline_gpu_memory_mb = float(mem_info.used or 0) / 1024 / 1024 if mem_info else 0
                 print(
@@ -275,7 +275,7 @@ class MemoryTracker:
         """Cleanup NVML on deletion."""
         if self.nvml_initialized and nvml is not None:
             with contextlib.suppress(Exception):
-                nvml.nvmlShutdown()  # type: ignore[attr-defined]
+                nvml.nvmlShutdown()
 
 
 async def create_memory_benchmark_extension() -> str:
@@ -416,7 +416,7 @@ class MemoryBenchmarkRunner:
 
             # Create extensions
             extensions = []
-            extension_venv_root = getattr(self.test_base, "test_root", None)
+            extension_venv_root = self.test_base.test_root
             if extension_venv_root is not None:
                 extension_venv_root = extension_venv_root / "extension-venvs"
             else:
@@ -633,7 +633,7 @@ class MemoryBenchmarkRunner:
 
             # Create extensions
             extensions = []
-            extension_venv_root = getattr(self.test_base, "test_root", None)
+            extension_venv_root = self.test_base.test_root
             if extension_venv_root is not None:
                 extension_venv_root = extension_venv_root / "extension-venvs"
             else:
@@ -1020,46 +1020,50 @@ Examples:
                 backend = "xpu"
             else:
                 backend = "cpu"
-        if backend == "cuda" and cuda_available:
-            # Use getattr to avoid linter errors for torch.version.hip
-            torch_version = getattr(torch, 'version', None)
-            hip_version = getattr(torch_version, 'hip', None) if torch_version else None
-            if platform.system() == "Linux" and hip_version is not None:
-                print("[PyIsolate] ROCm (AMD) backend detected on Linux.")
-            elif platform.system() == "Windows":
-                print("[PyIsolate] ROCm is not supported on Windows. Falling back to CPU.")
-                backend = "cpu"
-            if backend == "cuda":
-                if args.device is not None:
-                    if str(args.device).lower() == "cpu":
-                        backend = "cpu"
-                        device_str = "cpu"
-                        device_name = "cpu"
-                        print("[PyIsolate] Forcing CPU mode due to --device=cpu")
-                        args.no_gpu = True
-                    else:
-                        try:
-                            device_idx = int(args.device)
-                            torch.cuda.set_device(device_idx)
-                            device_str = f"cuda{device_idx}"
-                            device_name = torch.cuda.get_device_name(device_idx)
-                        except ValueError:
-                            print(f"Invalid --device value: {args.device}. Must be integer or 'cpu'.")
-                            sys.exit(1)
-                else:
-                    device_idx = torch.cuda.current_device()
-                    device_str = f"cuda{device_idx}"
-                    device_name = torch.cuda.get_device_name(device_idx)
-                backend_used = "cuda"
-                print(f"[PyIsolate] Using CUDA/ROCm device {device_idx}: {device_name}")
-        elif backend == "xpu" and xpu_available:
+
+        if backend == "cuda":
+            if not cuda_available:
+                print("[PyIsolate] CUDA backend requested but not available. Exiting.")
+                sys.exit(1)
+            # Only check for ROCm on Linux
+            if platform.system() == "Linux":
+                torch_version = getattr(torch, 'version', None)
+                hip_version = getattr(torch_version, 'hip', None) if torch_version else None
+                if hip_version is not None:
+                    print("[PyIsolate] ROCm (AMD) backend detected on Linux.")
+            # On Windows, just use CUDA if available
             if args.device is not None:
                 if str(args.device).lower() == "cpu":
                     backend = "cpu"
                     device_str = "cpu"
                     device_name = "cpu"
                     print("[PyIsolate] Forcing CPU mode due to --device=cpu")
-                    args.no_gpu = True
+                else:
+                    try:
+                        device_idx = int(args.device)
+                        torch.cuda.set_device(device_idx)
+                        device_str = f"cuda{device_idx}"
+                        device_name = torch.cuda.get_device_name(device_idx)
+                    except ValueError:
+                        print(f"Invalid --device value: {args.device}. Must be integer or 'cpu'.")
+                        sys.exit(1)
+            else:
+                device_idx = torch.cuda.current_device()
+                device_str = f"cuda{device_idx}"
+                device_name = torch.cuda.get_device_name(device_idx)
+            backend_used = "cuda"
+            print(f"[PyIsolate] Using CUDA device {device_idx}: {device_name}")
+
+        elif backend == "xpu":
+            if not xpu_available:
+                print("[PyIsolate] XPU backend requested but not available. Exiting.")
+                sys.exit(1)
+            if args.device is not None:
+                if str(args.device).lower() == "cpu":
+                    backend = "cpu"
+                    device_str = "cpu"
+                    device_name = "cpu"
+                    print("[PyIsolate] Forcing CPU mode due to --device=cpu")
                 else:
                     try:
                         device_idx = int(args.device)
@@ -1083,8 +1087,11 @@ Examples:
                 )
             backend_used = "xpu"
             print(f"[PyIsolate] Using Intel XPU device {device_idx}: {device_name}")
+
         else:
-            print("[PyIsolate] No supported GPU backend available, using CPU only.")
+            print("[PyIsolate] No supported GPU backend available, exiting.")
+            sys.exit(1)
+
     except Exception as e:
         print(f"[PyIsolate] Error setting device/backend: {e}")
 

@@ -16,6 +16,7 @@ import asyncio
 import platform
 import sys
 from pathlib import Path
+from typing import Optional
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -23,6 +24,7 @@ sys.path.insert(0, str(project_root))
 
 # Import after path setup
 from tests.test_benchmarks import TestRPCBenchmarks  # noqa: E402
+from shared import ExampleExtensionBase  # Add this import for type annotations
 
 # Try to import tabulate globally
 try:
@@ -219,14 +221,14 @@ def example_entrypoint():
         test_instance.extensions = await test_instance.load_extensions(extensions_to_create)
 
         # Assign extension references based on what was created
-        test_instance.benchmark_ext = None
-        test_instance.benchmark_ext_shared = None  # type: ignore
+        test_instance.benchmark_ext: Optional[ExampleExtensionBase] = None
+        test_instance.benchmark_ext_shared: Optional[ExampleExtensionBase] = None
 
         for i, ext_config in enumerate(extensions_to_create):
             if ext_config["name"] == "benchmark_ext":
                 test_instance.benchmark_ext = test_instance.extensions[i]
             elif ext_config["name"] == "benchmark_ext_shared":
-                test_instance.benchmark_ext_shared = test_instance.extensions[i]  # type: ignore
+                test_instance.benchmark_ext_shared = test_instance.extensions[i]
 
         # Initialize benchmark runner
         from tests.test_benchmarks import BenchmarkRunner
@@ -415,11 +417,8 @@ def example_entrypoint():
 
                         # Stop the extension to clean up the stuck process
                         try:
-                            if getattr(test_instance, 'manager', None) is not None:
-                                test_instance.manager.stop_extension("benchmark_ext")  # type: ignore
-                            print("    Extension stopped successfully")
-                            # Mark as None so we don't try to use it again
-                            test_instance.benchmark_ext = None  # type: ignore
+                            test_instance.manager.stop_extension("benchmark_ext")
+                            test_instance.benchmark_ext = None
                         except Exception as stop_e:
                             print(f"    Failed to stop extension: {stop_e}")
                     else:
@@ -431,7 +430,7 @@ def example_entrypoint():
                 skipped_tests[test_name] = "Extension stopped"
 
             # Test with share_torch extension (if available and torch tensor)
-            if test_instance.benchmark_ext_shared is not None:  # type: ignore
+            if test_instance.benchmark_ext_shared is not None:
                 # For torch tensors, always test shared mode
                 # For other data types, test shared mode only if torch_mode includes it
                 should_test_shared = torch_mode in ["both", "shared"]
@@ -440,7 +439,7 @@ def example_entrypoint():
                     print(f"  Testing {name} with share_torch...")
 
                     async def benchmark_func_shared(data=data):
-                        return await test_instance.benchmark_ext_shared.do_stuff(data)  # type: ignore
+                        return await test_instance.benchmark_ext_shared.do_stuff(data)
 
                     try:
                         result = await runner.run_benchmark(f"{name} (share_torch)", benchmark_func_shared)
@@ -460,11 +459,8 @@ def example_entrypoint():
 
                             # Stop the extension to clean up the stuck process
                             try:
-                                if getattr(test_instance, 'manager', None) is not None:
-                                    test_instance.manager.stop_extension("benchmark_ext_shared")  # type: ignore
-                                print("    Extension stopped successfully")
-                                # Mark as None so we don't try to use it again
-                                test_instance.benchmark_ext_shared = None  # type: ignore
+                                test_instance.manager.stop_extension("benchmark_ext_shared")
+                                test_instance.benchmark_ext_shared = None
                             except Exception as stop_e:
                                 print(f"    Failed to stop extension: {stop_e}")
                         else:
@@ -644,27 +640,33 @@ Examples:
                 backend = "xpu"
             else:
                 backend = "cpu"
-        if backend == "cuda" and cuda_available:
-            # Use getattr to avoid linter errors for torch.version.hip
-            torch_version = getattr(torch, 'version', None)
-            hip_version = getattr(torch_version, 'hip', None) if torch_version else None
-            if platform.system() == "Linux" and hip_version is not None:
-                print("[PyIsolate] ROCm (AMD) backend detected on Linux.")
-            elif platform.system() == "Windows":
-                print("[PyIsolate] ROCm is not supported on Windows. Falling back to CPU.")
-                backend = "cpu"
-            if backend == "cuda":
-                if device_idx is not None:
-                    torch.cuda.set_device(device_idx)
-                    device_str = f"cuda{device_idx}"
-                    device_name = torch.cuda.get_device_name(device_idx)
-                else:
-                    device_idx = torch.cuda.current_device()
-                    device_str = f"cuda{device_idx}"
-                    device_name = torch.cuda.get_device_name(device_idx)
-                backend_used = "cuda"
-                print(f"[PyIsolate] Using CUDA/ROCm device {device_idx}: {device_name}")
-        elif backend == "xpu" and xpu_available:
+
+        if backend == "cuda":
+            if not cuda_available:
+                print("[PyIsolate] CUDA backend requested but not available. Exiting.")
+                sys.exit(1)
+            # Only check for ROCm on Linux
+            if platform.system() == "Linux":
+                torch_version = getattr(torch, 'version', None)
+                hip_version = getattr(torch_version, 'hip', None) if torch_version else None
+                if hip_version is not None:
+                    print("[PyIsolate] ROCm (AMD) backend detected on Linux.")
+            # On Windows, just use CUDA if available
+            if device_idx is not None:
+                torch.cuda.set_device(device_idx)
+                device_str = f"cuda{device_idx}"
+                device_name = torch.cuda.get_device_name(device_idx)
+            else:
+                device_idx = torch.cuda.current_device()
+                device_str = f"cuda{device_idx}"
+                device_name = torch.cuda.get_device_name(device_idx)
+            backend_used = "cuda"
+            print(f"[PyIsolate] Using CUDA device {device_idx}: {device_name}")
+
+        elif backend == "xpu":
+            if not xpu_available:
+                print("[PyIsolate] XPU backend requested but not available. Exiting.")
+                sys.exit(1)
             if device_idx is not None:
                 torch.xpu.set_device(device_idx)
                 device_str = f"xpu{device_idx}"
@@ -683,8 +685,11 @@ Examples:
                 )
             backend_used = "xpu"
             print(f"[PyIsolate] Using Intel XPU device {device_idx}: {device_name}")
+
         else:
-            print("[PyIsolate] No supported GPU backend available, using CPU only.")
+            print("[PyIsolate] No supported GPU backend available, exiting.")
+            sys.exit(1)
+
     except Exception as e:
         print(f"[PyIsolate] Error setting device/backend: {e}")
 
