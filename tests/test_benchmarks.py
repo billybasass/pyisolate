@@ -28,7 +28,12 @@ try:
 
     TORCH_AVAILABLE = True
     CUDA_AVAILABLE = torch.cuda.is_available()
-    # Set CUDA device from environment variable if specified
+    XPU_AVAILABLE = hasattr(torch, "xpu") and torch.xpu.is_available()
+    ROCM_AVAILABLE = False
+    if CUDA_AVAILABLE and hasattr(torch.version, "hip") and torch.version.hip is not None:
+        ROCM_AVAILABLE = True
+
+    # Set CUDA/ROCm device from environment variable if specified
     cuda_env = os.environ.get("PYISOLATE_CUDA_DEVICE")
     if CUDA_AVAILABLE and cuda_env is not None:
         torch.cuda.set_device(int(cuda_env))
@@ -38,8 +43,12 @@ try:
             f"[PyIsolate] Using default CUDA device {torch.cuda.current_device()}: "
             f"{torch.cuda.get_device_name(torch.cuda.current_device())}"
         )
+    elif ROCM_AVAILABLE:
+        print("[PyIsolate] Using AMD ROCm backend.")
+    elif XPU_AVAILABLE:
+        print("[PyIsolate] Using Intel XPU backend.")
     else:
-        print("[PyIsolate] CUDA not available, exiting.")
+        print("[PyIsolate] No supported GPU backend available, exiting.")
         import sys
         sys.exit(1)
 except ImportError:

@@ -24,7 +24,7 @@ sys.path.insert(0, str(project_root))
 
 # Import after path setup
 from tests.test_benchmarks import TestRPCBenchmarks  # noqa: E402
-from shared import ExampleExtensionBase  # Add this import for type annotations
+from example.shared import ExampleExtensionBase  # Corrected import path
 
 # Try to import tabulate globally
 try:
@@ -686,6 +686,12 @@ Examples:
             backend_used = "xpu"
             print(f"[PyIsolate] Using Intel XPU device {device_idx}: {device_name}")
 
+        elif backend == "cpu":
+            # CPU fallback
+            device_str = "cpu"
+            device_name = "cpu"
+            backend_used = "cpu"
+            print(f"[PyIsolate] Using CPU backend.")
         else:
             print("[PyIsolate] No supported GPU backend available, exiting.")
             sys.exit(1)
